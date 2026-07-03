@@ -88,6 +88,9 @@
     border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink);font-size:19px;
     display:flex;align-items:center;justify-content:center}
   .iconBtn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+  body.photo #hud > *:not(#topRight){visibility:hidden}
+  body.photo #topRight > *:not(#photoBtn){visibility:hidden}
+  body.photo #dlg, body.photo #toast{visibility:hidden}
   #hint{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);z-index:3}
   #joyZone{z-index:1}
   #hint .chip{background:var(--ink);color:var(--card);box-shadow:0 3px 0 rgba(0,0,0,.35);
@@ -184,6 +187,8 @@
   <div id="objective">Find Pip at the post office.</div>
   <div id="topRight">
     <div class="chip" id="playersChip" style="display:none">👥 <span id="playersCount">1</span><span id="roomCode"></span></div>
+    <button class="iconBtn" id="micBtn" title="Voice chat" style="opacity:.55">🎙️</button>
+    <button class="iconBtn" id="photoBtn" title="Photo mode">📷</button>
     <button class="iconBtn" id="soundBtn" title="Music on/off">🔇</button>
     <button class="iconBtn" id="helpBtn" title="Controls">?</button>
   </div>
@@ -512,7 +517,9 @@ const clouds = [];
 
 /* ---------- the seven zones + dynamic water + secrets ---------- */
 let oceanMat, smokes = [], fountainBits = null, flameMesh = null;
-let rhoObj = null, factoryPos = null;
+let rhoObj = null, factoryPos = null, ball = null;
+const BENCHES = [];
+const ballState = {pos:null, vel:new THREE.Vector3()};
 const EXTRAS = []; // interactable non-quest things
 let secretsFound = 0; const SECRET_TOTAL = 3;
 
@@ -648,7 +655,18 @@ function buildZones(){
     bench.add(seat,l1,l2);
     surfaceOrient(bench, capEdgePoint(plazaDir, 7, a), a+1.5);
     planet.add(bench);
+    BENCHES.push(bench);
   }
+  /* --- the beach ball: kick it around together --- */
+  ball = new THREE.Group();
+  const bCore = outline(new THREE.Mesh(new THREE.SphereGeometry(.5,16,12), toon(0xF2735E)),1.06);
+  const bBand = new THREE.Mesh(new THREE.TorusGeometry(.5,.09,8,24), toon(0xFBF3E2));
+  bBand.rotation.x = Math.PI/2;
+  const bBand2 = new THREE.Mesh(new THREE.TorusGeometry(.5,.09,8,24), toon(0xF4C25E));
+  ball.add(bCore, bBand, bBand2);
+  ballState.pos = capEdgePoint(plazaDir, 5, 2.2).normalize().multiplyScalar(R+.5);
+  ball.position.copy(ballState.pos);
+  scene.add(ball);
   rhoObj = makeCharacter({jacket:0xE0A34E, cap:0x33291F, bag:false});
   surfaceOrient(rhoObj, capEdgePoint(plazaDir, 6, 5.5), 3.6);
   const rlabel = textSprite('Rho ♪', {scale:.011}); rlabel.position.y = 2.6; rhoObj.add(rlabel);
@@ -1034,7 +1052,8 @@ addEventListener('keydown', e=>{
   keys[e.code] = true;
   if(running && ['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
     e.preventDefault();
-  if(e.code==='KeyE') tryInteract();
+  if(e.code==='KeyE'){ if(mode === 'fish') fishAction(); else tryInteract(); }
+  if(e.code==='KeyP' && running) togglePhoto();
   if(e.code==='Space' || e.code==='Enter'){ if(dlgOpen) advanceDialogue(); }
   const em = {Digit1:'👋',Digit2:'❤️',Digit3:'🎵',Digit4:'✨'}[e.code];
   if(em && running) spawnEmoji(player, em);
@@ -1152,14 +1171,22 @@ function foundSecret(it){
 }
 function tryInteract(){
   if(!running || dlgOpen) return;
+  if(mode === 'sit'){ standUp(); return; }
   const near = nearestThing();
-  if(!near || near.dist > 4.2) return;
-  if(near.kind === 'extra'){
-    const it = near.it;
-    openDialogue(it.name, it.lines, ()=>{ if(it.secret) foundSecret(it); });
-    return;
+  if(near && near.dist <= 4.2){
+    if(near.kind === 'extra'){
+      const it = near.it;
+      openDialogue(it.name, it.lines, ()=>{ if(it.secret) foundSecret(it); });
+      return;
+    }
+    const key = near.key, def = NPCS[key];
+    return talkToNPC(key, def);
   }
-  const key = near.key, def = NPCS[key];
+  const bench = nearestBench();
+  if(bench && bench.d < 2.6){ sitDown(bench.b); return; }
+  if(canFish()){ startFishing(); return; }
+}
+function talkToNPC(key, def){
   if(key === currentTargetKey()){
     const step = CHAIN[stage];
     openDialogue(def.name, step.lines, ()=>{
@@ -1185,11 +1212,12 @@ function toast(msg){
   t.textContent = msg; t.classList.add('show');
   clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2600);
 }
-document.getElementById('hintChip').addEventListener('click', tryInteract);
+document.getElementById('hintChip').addEventListener('click',
+  ()=>{ if(mode === 'fish') fishAction(); else tryInteract(); });
 document.getElementById('endClose').addEventListener('click',
   ()=>document.getElementById('endCard').classList.remove('show'));
 document.getElementById('helpBtn').addEventListener('click',
-  ()=>toast('WASD / joystick to walk · E or tap chip to talk · drag to look · 1–4 emoji'));
+  ()=>toast('WASD walk · E talk / sit / fish · kick the ball · 🎙 voice near friends · P photo · 1–4 emoji'));
 
 /* ---------- lo-fi generative music (WebAudio, no files) ---------- */
 let AC=null, musicOn=false, chordTimer=null, bellTimer=null, masterG=null;
@@ -1383,6 +1411,7 @@ function ensureRemote(id, name, outfit, p, q){
   const r = {g, tp:g.position.clone(), tq:g.quaternion.clone(), walk:0, name:name||'courier'};
   remotes.set(id, r);
   refreshPlayersChip();
+  if(voice.stream) setTimeout(()=>callPeerVoice(id), 600);
   return r;
 }
 function removeRemote(id){
@@ -1390,11 +1419,13 @@ function removeRemote(id){
   if(!r) return;
   scene.remove(r.g);
   remotes.delete(id);
+  dropVoice(id);
   refreshPlayersChip();
   toast(`${r.name} drifted off`);
 }
 function clearNet(msg){
-  for(const id of [...remotes.keys()]) { scene.remove(remotes.get(id).g); remotes.delete(id); }
+  for(const id of [...remotes.keys()]) { scene.remove(remotes.get(id).g); dropVoice(id); remotes.delete(id); }
+  voice.called.clear();
   try{ NET.peer && NET.peer.destroy(); }catch(e){}
   NET.peer = null; NET.hostConn = null; NET.conns.clear();
   NET.role = 'solo'; NET.code = '';
@@ -1431,6 +1462,9 @@ function hostOnData(conn, d){
   } else if(d.t === 'fit'){
     refitRemote(id, d.outfit);
     hostBroadcast({t:'fit', id, outfit:d.outfit}, id);
+  } else if(d.t === 'ball'){
+    applyBall(d);
+    hostBroadcast({t:'ball', p:d.p, v:d.v}, id);
   }
 }
 function guestOnData(d){
@@ -1439,6 +1473,7 @@ function guestOnData(d){
   else if(d.t === 'pos'){ const r = remotes.get(d.id); if(!r) return; r.tp.fromArray(d.p); r.tq.fromArray(d.q); r.walk = d.w; }
   else if(d.t === 'emo'){ const r = remotes.get(d.id); if(r) spawnEmoji(r.g, d.e); }
   else if(d.t === 'fit'){ refitRemote(d.id, d.outfit); }
+  else if(d.t === 'ball'){ applyBall(d); }
   else if(d.t === 'leave'){ removeRemote(d.id); }
   else if(d.t === 'full'){ clearNet('That planet is full (10 couriers max).'); }
 }
@@ -1460,6 +1495,7 @@ function startHost(){
   mpStatus('Opening your planet…');
   const peer = new Peer('postling-'+code);
   NET.peer = peer;
+  hookIncomingCalls(peer);
   peer.on('open', ()=>{
     NET.role = 'host'; NET.code = code;
     mpStatus(`Hosting planet ${code} — share the code with friends!`);
@@ -1488,6 +1524,7 @@ function joinRoom(codeRaw){
   mpStatus(`Looking for planet ${code}…`);
   const peer = new Peer();
   NET.peer = peer;
+  hookIncomingCalls(peer);
   peer.on('open', ()=>{
     const conn = peer.connect('postling-'+code, {reliable:true});
     NET.hostConn = conn;
@@ -1509,7 +1546,7 @@ function netSendPos(){
   const msg = {t:'pos',
     p:player.position.toArray().map(n=>+n.toFixed(2)),
     q:player.quaternion.toArray().map(n=>+n.toFixed(3)),
-    w:(Math.abs(player.userData.legL.rotation.x) > .05) ? 1 : 0};
+    w: mode === 'sit' ? 2 : ((Math.abs(player.userData.legL.rotation.x) > .05) ? 1 : 0)};
   if(NET.role === 'host') hostBroadcast({...msg, id:'HOST'});
   else if(NET.hostConn && NET.hostConn.open) NET.hostConn.send(msg);
 }
@@ -1527,12 +1564,22 @@ function updateRemotes(dt, t){
   for(const r of remotes.values()){
     r.g.position.lerp(r.tp, Math.min(1, 10*dt));
     r.g.quaternion.slerp(r.tq, Math.min(1, 10*dt));
-    const u = r.g.userData, s = Math.sin(t*11)* (r.walk? .55 : 0);
-    u.legL.rotation.x += (s - u.legL.rotation.x)*.5;
-    u.legR.rotation.x += (-s - u.legR.rotation.x)*.5;
-    u.armL.rotation.x = -u.legL.rotation.x*.8;
-    u.armR.rotation.x = -u.legR.rotation.x*.8;
+    const u = r.g.userData;
+    if(r.walk === 2){ // sitting
+      u.legL.rotation.x += (-Math.PI/2 - u.legL.rotation.x)*.3;
+      u.legR.rotation.x += (-Math.PI/2 - u.legR.rotation.x)*.3;
+      u.armL.rotation.x = u.armR.rotation.x = 0;
+      u.model.position.y += (.22 - u.model.position.y)*.3;
+    } else {
+      const s = Math.sin(t*11) * (r.walk ? .55 : 0);
+      u.legL.rotation.x += (s - u.legL.rotation.x)*.5;
+      u.legR.rotation.x += (-s - u.legR.rotation.x)*.5;
+      u.armL.rotation.x = -u.legL.rotation.x*.8;
+      u.armR.rotation.x = -u.legR.rotation.x*.8;
+      u.model.position.y += (0 - u.model.position.y)*.3;
+    }
   }
+  if(player) updateVoiceVolumes();
 }
 document.getElementById('hostBtn').addEventListener('click', e=>{ e.currentTarget.blur(); startHost(); });
 document.getElementById('joinBtn').addEventListener('click', e=>{ e.currentTarget.blur();
@@ -1541,6 +1588,223 @@ document.getElementById('roomInput').addEventListener('keydown', e=>{
   e.stopPropagation();
   if(e.key === 'Enter') joinRoom(e.currentTarget.value);
 });
+
+/* ---------- activities: sit, fish, kick the ball, photo mode ---------- */
+let mode = 'walk'; // walk | sit | fish
+const fish = {phase:'idle', t:0, bobber:null, misses:0};
+const FISH_TABLE = [
+  ['tin sardine','🐟',30],['pebble bass','🐟',24],['moon minnow','🐠',18],
+  ['postcard perch','🐡',14],['a very old boot','🥾',9],['the star koi','⭐',5],
+];
+function rollFish(){
+  let total = 0; for(const f of FISH_TABLE) total += f[2];
+  let r = Math.random()*total;
+  for(const f of FISH_TABLE){ r -= f[2]; if(r <= 0) return f; }
+  return FISH_TABLE[0];
+}
+function shorelineDot(){ return player.position.clone().normalize().dot(OCEAN.dir); }
+function canFish(){ return shorelineDot() > Math.cos(THREE.MathUtils.degToRad(36)); }
+function nearestBench(){
+  let best = null;
+  for(const b of BENCHES){
+    const d = b.position.distanceTo(player.position);
+    if(!best || d < best.d) best = {b, d};
+  }
+  return best;
+}
+function sitDown(bench){
+  mode = 'sit';
+  player.position.copy(bench.position).setLength(R);
+  player.quaternion.copy(bench.quaternion);
+  const u = player.userData;
+  u.legL.rotation.x = u.legR.rotation.x = -Math.PI/2;
+  u.armL.rotation.x = u.armR.rotation.x = 0;
+  u.model.position.y = .22;
+  toast('Sitting — move to stand up');
+  sfxBlip(420);
+}
+function standUp(){
+  if(mode !== 'sit') return;
+  mode = 'walk';
+  const u = player.userData;
+  u.legL.rotation.x = u.legR.rotation.x = 0;
+  u.model.position.y = 0;
+}
+function startFishing(){
+  mode = 'fish'; fish.phase = 'wait'; fish.t = 2 + Math.random()*4; fish.misses = 0;
+  const up = player.position.clone().normalize();
+  const bobDir = up.clone().lerp(OCEAN.dir, .12).normalize();
+  if(!fish.bobber){
+    fish.bobber = new THREE.Group();
+    const cork = new THREE.Mesh(new THREE.SphereGeometry(.16,8,6), toon(0xF2735E));
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(.09,8,6), toon(0xFBF3E2));
+    tip.position.y = .14;
+    fish.bobber.add(cork, tip);
+    scene.add(fish.bobber);
+  }
+  fish.bobber.visible = true;
+  fish.bobber.position.copy(bobDir.multiplyScalar(R+.15));
+  // face the water
+  let f = fish.bobber.position.clone().sub(player.position);
+  f.addScaledVector(up, -f.dot(up)).normalize();
+  const x = V().crossVectors(up, f).normalize();
+  tmpM.makeBasis(x, up, f);
+  player.quaternion.setFromRotationMatrix(tmpM);
+  toast('Fishing… wait for the ❗');
+  sfxBlip(500);
+}
+function stopFishing(msg){
+  mode = 'walk'; fish.phase = 'idle';
+  if(fish.bobber) fish.bobber.visible = false;
+  if(msg) toast(msg);
+}
+function fishAction(){ // E pressed while fishing
+  if(fish.phase === 'bite'){
+    const [name, icon] = rollFish();
+    toast(`You caught ${name}! ${icon}`);
+    spawnEmoji(player, icon);
+    sfxChime();
+    fish.phase = 'wait'; fish.t = 2.5 + Math.random()*4;
+  } else stopFishing('Reeled in.');
+}
+function updateFishing(dt, t){
+  if(mode !== 'fish') return;
+  if(fish.bobber){
+    const bu = fish.bobber.position.clone().normalize();
+    fish.bobber.position.copy(bu.multiplyScalar(R + .15 + Math.sin(t*2.6)*.05));
+  }
+  fish.t -= dt;
+  if(fish.phase === 'wait' && fish.t <= 0){
+    fish.phase = 'bite'; fish.t = 1.15;
+    spawnEmoji(player, '❗');
+    sfxBlip(880); setTimeout(()=>sfxBlip(880), 110);
+    if(fish.bobber) fish.bobber.position.addScaledVector(fish.bobber.position.clone().normalize(), -.12);
+  } else if(fish.phase === 'bite' && fish.t <= 0){
+    fish.phase = 'wait'; fish.t = 2 + Math.random()*4;
+    fish.misses++;
+    toast(fish.misses >= 3 ? 'It got away… they can smell impatience.' : 'It got away!');
+  }
+}
+function updateBall(dt){
+  if(!ball) return;
+  const p = ballState.pos, v = ballState.vel;
+  // kick
+  ballState.cd = Math.max(0, (ballState.cd||0) - dt);
+  if(mode === 'walk' && player && ballState.cd <= 0){
+    const d = p.distanceTo(player.position);
+    if(d < 1.5 && lastMoveDir.lengthSq() > .1){
+      const up = p.clone().normalize();
+      const kick = lastMoveDir.clone();
+      kick.addScaledVector(up, -kick.dot(up)).normalize();
+      v.addScaledVector(kick, 7.5);
+      if(v.length() > 12) v.setLength(12);
+      ballState.cd = .35;
+      sfxBlip(300);
+      netBall();
+    }
+  }
+  if(v.lengthSq() > .0004){
+    const prev = p.clone();
+    p.addScaledVector(v, dt);
+    p.setLength(R + .5);
+    if(p.clone().normalize().dot(OCEAN.dir) > OCEAN.cosWater){ // splash back at the shore
+      p.copy(prev); v.multiplyScalar(-.5);
+    }
+    const up = p.clone().normalize();
+    v.addScaledVector(up, -v.dot(up));      // keep velocity tangent
+    v.multiplyScalar(Math.pow(.45, dt));    // friction
+    ball.position.copy(p);
+    ball.rotation.x += v.length()*dt*1.6;   // playful spin
+    ball.rotation.z += v.length()*dt*.9;
+  }
+}
+let lastMoveDir = new THREE.Vector3();
+// photo mode
+let photoMode = false;
+function togglePhoto(){
+  photoMode = !photoMode;
+  document.body.classList.toggle('photo', photoMode);
+  if(photoMode) toast('Photo mode — 📷 or P to exit');
+}
+document.getElementById('photoBtn').addEventListener('click', e=>{ e.currentTarget.blur(); togglePhoto(); });
+
+/* ---------- proximity voice chat (WebRTC media over PeerJS) ---------- */
+const voice = {stream:null, on:false, audios:new Map(), called:new Set(), pending:[]};
+function peerIdOf(key){ return key === 'HOST' ? 'postling-'+NET.code : key; }
+function keyOfPeer(pid){ return (NET.role === 'guest' && pid === 'postling-'+NET.code) ? 'HOST' : pid; }
+function attachVoice(key, stream){
+  const el = new Audio();
+  el.srcObject = stream; el.autoplay = true; el.volume = 0;
+  el.play().catch(()=>{
+    voice.pending.push(el);
+    toast('Tap anywhere once to enable voice');
+  });
+  if(!voice.audios.has(key)) voice.audios.set(key, []);
+  voice.audios.get(key).push(el);
+}
+addEventListener('pointerdown', ()=>{
+  while(voice.pending.length){ const el = voice.pending.pop(); el.play().catch(()=>{}); }
+}, {capture:true});
+function callPeerVoice(key){
+  if(!voice.stream || !NET.peer || voice.called.has(key)) return;
+  try{
+    const call = NET.peer.call(peerIdOf(key), voice.stream);
+    if(!call) return;
+    voice.called.add(key);
+    call.on('stream', s=>attachVoice(key, s));
+    call.on('close', ()=>voice.called.delete(key));
+  }catch(e){}
+}
+function hookIncomingCalls(peer){
+  peer.on('call', call=>{
+    call.answer(voice.stream || undefined);
+    call.on('stream', s=>attachVoice(keyOfPeer(call.peer), s));
+  });
+}
+async function toggleMic(){
+  const btn = document.getElementById('micBtn');
+  if(!netActive()){ toast('Voice works once you host or join a planet'); return; }
+  if(!voice.stream){
+    try{
+      voice.stream = await navigator.mediaDevices.getUserMedia(
+        {audio:{echoCancellation:true, noiseSuppression:true}});
+    }catch(e){ toast('Mic permission denied'); return; }
+    voice.on = true;
+    for(const key of remotes.keys()) callPeerVoice(key);
+    toast('Voice on — friends nearby can hear you');
+  } else {
+    voice.on = !voice.on;
+    voice.stream.getAudioTracks().forEach(tr=>tr.enabled = voice.on);
+    toast(voice.on ? 'Mic on' : 'Mic muted');
+  }
+  btn.style.opacity = voice.on ? 1 : .55;
+  btn.textContent = voice.on ? '🎙️' : '🔇';
+}
+document.getElementById('micBtn').addEventListener('click', e=>{ e.currentTarget.blur(); toggleMic(); });
+function dropVoice(key){
+  const els = voice.audios.get(key);
+  if(els){ els.forEach(el=>{ try{el.pause(); el.srcObject=null;}catch(e){} }); voice.audios.delete(key); }
+  voice.called.delete(key);
+}
+function updateVoiceVolumes(){
+  for(const [key, els] of voice.audios){
+    const r = remotes.get(key);
+    const d = r ? r.g.position.distanceTo(player.position) : 999;
+    const v = Math.pow(THREE.MathUtils.clamp(1 - (d-4)/16, 0, 1), 1.5);
+    for(const el of els) el.volume = v;
+  }
+}
+function netBall(){
+  if(!netActive()) return;
+  const msg = {t:'ball', p:ballState.pos.toArray().map(n=>+n.toFixed(2)),
+    v:ballState.vel.toArray().map(n=>+n.toFixed(2))};
+  if(NET.role === 'host') hostBroadcast(msg);
+  else if(NET.hostConn && NET.hostConn.open) NET.hostConn.send(msg);
+}
+function applyBall(d){
+  if(!ballState.pos) return;
+  ballState.pos.fromArray(d.p); ballState.vel.fromArray(d.v);
+}
 
 /* ---------- movement / camera update ---------- */
 const tmpQ = new THREE.Quaternion(), tmpM = new THREE.Matrix4();
@@ -1553,6 +1817,11 @@ function updatePlayer(dt){
   let ix = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0) + joy.x;
   let iy = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0) + joy.y;
   if(dlgOpen){ ix = iy = 0; }
+  if(mode !== 'walk' && (Math.abs(ix) > .2 || Math.abs(iy) > .2)){
+    if(mode === 'sit') standUp();
+    else if(mode === 'fish') stopFishing('Reeled in.');
+  }
+  if(mode !== 'walk'){ ix = iy = 0; }
   let mag = Math.min(1, Math.hypot(ix, iy));
 
   const camF = pos.clone().sub(camera.position);
@@ -1563,6 +1832,7 @@ function updatePlayer(dt){
 
   const SPEED = 8.2;
   if(mag > 0.01){
+    lastMoveDir.copy(moveDir);
     const prev = pos.clone();
     const inWater = pos.clone().normalize().dot(OCEAN.dir) > OCEAN.cosWater;
     pos.addScaledVector(moveDir, SPEED*(inWater? .55 : 1)*mag*dt);
@@ -1603,10 +1873,13 @@ function updatePlayer(dt){
   player.quaternion.rotateTowards(tmpQ, (mag>0.01 ? 9 : 20)*dt);
 
   // walk cycle
-  const u = player.userData, s = Math.sin(walkPhase), amp = .55*mag;
-  u.legL.rotation.x =  s*amp; u.legR.rotation.x = -s*amp;
-  u.armL.rotation.x = -s*amp*.8; u.armR.rotation.x = s*amp*.8;
-  u.model.position.y = Math.abs(Math.sin(walkPhase))*.06*mag;
+  if(mode === 'walk'){
+    const u = player.userData, s = Math.sin(walkPhase), amp = .55*mag;
+    u.legL.rotation.x =  s*amp; u.legR.rotation.x = -s*amp;
+    u.armL.rotation.x = -s*amp*.8; u.armR.rotation.x = s*amp*.8;
+    u.model.position.y = Math.abs(Math.sin(walkPhase))*.06*mag;
+  }
+  if(mag < 0.01) lastMoveDir.multiplyScalar(Math.pow(.01, dt));
 
   /* camera: lazy follow around the sphere */
   let off = camera.position.clone().sub(pos);
@@ -1650,12 +1923,22 @@ function updatePlayer(dt){
   }
   const near = nearestThing();
   const hint = document.getElementById('hint');
-  if(near && near.dist < 4.2 && !dlgOpen){
+  const tapWord = document.body.classList.contains('touch') ? 'Tap — ' : 'E — ';
+  let hintTxt = null;
+  if(!dlgOpen){
+    if(mode === 'fish') hintTxt = fish.phase === 'bite' ? tapWord + 'HOOK IT ❗' : tapWord + 'reel in';
+    else if(mode === 'sit') hintTxt = tapWord + 'stand up';
+    else if(near && near.dist < 4.2)
+      hintTxt = tapWord + (near.kind==='extra' && near.it.secret && !near.it.found ? 'Inspect ' : 'Talk to ') + near.name;
+    else {
+      const bench = nearestBench();
+      if(bench && bench.d < 2.6) hintTxt = tapWord + 'sit on the bench';
+      else if(canFish()) hintTxt = tapWord + 'fish';
+    }
+  }
+  if(hintTxt){
     hint.style.display = 'block';
-    document.getElementById('hintChip').textContent =
-      (document.body.classList.contains('touch') ? 'Tap — ' : 'E — ')
-      + (near.kind==='extra' && near.it.secret && !near.it.found ? 'Inspect ' : 'Talk to ')
-      + near.name;
+    document.getElementById('hintChip').textContent = hintTxt;
   } else hint.style.display = 'none';
 
   // zone announcements
@@ -1752,6 +2035,8 @@ function loop(){
   if(running){
     updatePlayer(dt);
     updateNPCs(dt, t);
+    updateFishing(dt, t);
+    updateBall(dt);
     if(!netActive()) updateBots(dt, t);
     NET.sendT -= dt;
     if(NET.sendT <= 0){ netSendPos(); NET.sendT = .1; }
