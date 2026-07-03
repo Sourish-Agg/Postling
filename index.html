@@ -1,0 +1,1845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Postling — a very small planet</title>
+<meta name="description" content="It's a very small planet, but the mail must move. An original homage to Abeto's Messenger.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#FBF3E2; --ink:#33291F; --coral:#F2735E; --peach:#FFD9A8;
+    --sky:#8FB9E8; --leaf:#7FBF72; --card:#FFF9EC;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--cream);font-family:'Outfit',sans-serif;color:var(--ink)}
+  canvas{display:block}
+  button{font-family:inherit;cursor:pointer}
+
+  /* ---------- LOADER ---------- */
+  #loader{position:fixed;inset:0;z-index:60;background:var(--cream);display:flex;
+    flex-direction:column;align-items:center;justify-content:center;gap:26px;
+    transition:opacity .8s ease, visibility .8s}
+  #loader.done{opacity:0;visibility:hidden}
+  .orbitBox{position:relative;width:150px;height:150px}
+  .planetDot{position:absolute;inset:0;margin:auto;width:64px;height:64px;border-radius:50%;
+    background:var(--leaf);border:3px solid var(--ink);
+    box-shadow:inset -10px -8px 0 rgba(0,0,0,.12), 0 0 0 10px rgba(127,191,114,.15)}
+  .planetDot::after{content:"";position:absolute;left:12px;top:16px;width:18px;height:10px;
+    border-radius:50%;background:#A8D89A}
+  .orbitRing{position:absolute;inset:0;border:2px dashed rgba(51,41,31,.25);border-radius:50%;
+    animation:spin 9s linear infinite}
+  .satellite{position:absolute;inset:0;animation:spin 3.2s linear infinite}
+  .satellite span{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:26px;
+    filter:drop-shadow(0 2px 0 rgba(51,41,31,.25))}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){
+    .orbitRing,.satellite{animation:none}
+  }
+  #loadStep{font-size:15px;letter-spacing:.04em;opacity:.75;min-height:20px}
+  .meter{width:min(320px,70vw);height:14px;border:2px solid var(--ink);border-radius:99px;
+    background:#fff;overflow:hidden;position:relative}
+  .meter i{display:block;height:100%;width:0%;background:repeating-linear-gradient(
+    -45deg,var(--coral) 0 10px,#F79A83 10px 20px);transition:width .35s ease;border-radius:99px}
+  #loadPct{font-family:'Baloo 2';font-weight:800;font-size:22px}
+
+  /* ---------- TITLE ---------- */
+  #title{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;align-items:center;
+    justify-content:center;gap:14px;text-align:center;
+    background:radial-gradient(ellipse at 50% 120%, rgba(255,217,168,.55), transparent 60%);
+    transition:opacity .9s ease, visibility .9s}
+  #title.show{display:flex}
+  #title.hide{opacity:0;visibility:hidden}
+  #title h1{font-family:'Baloo 2';font-weight:800;font-size:clamp(56px,12vw,120px);line-height:.9;
+    color:var(--ink);text-shadow:4px 4px 0 var(--peach), 8px 8px 0 rgba(242,115,94,.35);
+    letter-spacing:.01em}
+  #title .tag{font-size:clamp(15px,2.4vw,19px);opacity:.8;max-width:32ch}
+  #startBtn{margin-top:14px;font-family:'Baloo 2';font-weight:800;font-size:22px;color:var(--card);
+    background:var(--coral);border:3px solid var(--ink);border-radius:99px;padding:14px 46px;
+    box-shadow:0 5px 0 var(--ink);transition:transform .12s, box-shadow .12s}
+  #startBtn:hover{transform:translateY(-2px);box-shadow:0 7px 0 var(--ink)}
+  #startBtn:active{transform:translateY(3px);box-shadow:0 2px 0 var(--ink)}
+  .controlsHint{margin-top:16px;display:flex;gap:22px;flex-wrap:wrap;justify-content:center;
+    font-size:13.5px;opacity:.75}
+  .controlsHint b{font-weight:600;background:#fff;border:1.5px solid var(--ink);border-radius:7px;
+    padding:2px 8px;margin-right:5px}
+  #mpPanel{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  .mpBtn{font-family:'Baloo 2';font-weight:800;font-size:15px;background:var(--card);
+    border:2.5px solid var(--ink);border-radius:99px;padding:8px 20px;box-shadow:0 3px 0 var(--ink)}
+  .mpBtn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+  #roomInput{width:92px;text-align:center;font-family:'Baloo 2';font-weight:800;font-size:17px;
+    letter-spacing:.25em;text-transform:uppercase;background:#fff;border:2.5px solid var(--ink);
+    border-radius:12px;padding:8px 6px;outline:none;color:var(--ink)}
+  #mpStatus{font-size:13px;opacity:.75;min-height:18px;max-width:46ch;padding:0 14px}
+  .credit{position:absolute;bottom:14px;font-size:12px;opacity:.55;padding:0 20px}
+  .credit a{color:inherit}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;z-index:30;pointer-events:none;display:none}
+  #hud.show{display:block}
+  .chip{pointer-events:auto;background:var(--card);border:2.5px solid var(--ink);border-radius:99px;
+    box-shadow:0 3px 0 var(--ink);display:flex;align-items:center;gap:9px;
+    padding:9px 16px;font-weight:600;font-size:15px}
+  #questChip{position:absolute;top:14px;left:14px}
+  #questChip .env{font-size:18px}
+  #topRight{position:absolute;top:14px;right:14px;display:flex;gap:9px}
+  .iconBtn{pointer-events:auto;width:44px;height:44px;border-radius:50%;background:var(--card);
+    border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink);font-size:19px;
+    display:flex;align-items:center;justify-content:center}
+  .iconBtn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+  #hint{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);z-index:3}
+  #joyZone{z-index:1}
+  #hint .chip{background:var(--ink);color:var(--card);box-shadow:0 3px 0 rgba(0,0,0,.35);
+    border-color:var(--ink);cursor:pointer}
+  #objective{position:absolute;top:64px;left:14px;font-size:13px;background:rgba(251,243,226,.85);
+    border:1.5px dashed var(--ink);border-radius:12px;padding:6px 12px;max-width:60vw}
+  #secretChip{position:absolute;top:68px;right:14px;display:none;font-size:14px}
+
+  /* emoji bar */
+  #emojiBar{position:absolute;right:14px;bottom:16px;display:flex;gap:8px}
+  .emojiBtn{pointer-events:auto;width:48px;height:48px;border-radius:14px;background:var(--card);
+    border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink);font-size:22px}
+  .emojiBtn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+
+  /* joystick */
+  #joyZone{position:absolute;left:0;bottom:0;width:46vw;height:46vh;pointer-events:auto;display:none}
+  body.touch #joyZone{display:block}
+  #joyBase{position:absolute;width:104px;height:104px;border-radius:50%;
+    border:2.5px solid rgba(51,41,31,.55);background:rgba(251,243,226,.35);display:none}
+  #joyKnob{position:absolute;width:48px;height:48px;border-radius:50%;
+    background:var(--card);border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink);display:none}
+
+  /* ---------- DIALOGUE ---------- */
+  #dlg{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);z-index:40;
+    width:min(560px,92vw);background:var(--card);border:3px solid var(--ink);border-radius:20px;
+    box-shadow:0 6px 0 var(--ink);padding:18px 20px 14px;opacity:0;visibility:hidden;
+    transition:.25s ease;cursor:pointer}
+  #dlg.show{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+  #dlgName{font-family:'Baloo 2';font-weight:800;color:var(--coral);font-size:17px;margin-bottom:4px}
+  #dlgText{font-size:16.5px;line-height:1.45;min-height:48px}
+  #dlgMore{text-align:right;font-size:12px;opacity:.6;margin-top:6px}
+
+  /* ---------- TOAST & END ---------- */
+  #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-8px);z-index:58;
+    background:var(--ink);color:var(--card);border-radius:99px;padding:10px 22px;font-weight:600;
+    opacity:0;transition:.4s;pointer-events:none;font-size:15px;white-space:nowrap}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #endCard{position:fixed;inset:0;z-index:55;display:none;align-items:center;justify-content:center;
+    background:rgba(51,41,31,.35);backdrop-filter:blur(3px)}
+  #endCard.show{display:flex}
+  #endCard .inner{background:var(--card);border:3px solid var(--ink);border-radius:24px;
+    box-shadow:0 8px 0 var(--ink);padding:38px 42px;text-align:center;max-width:min(440px,90vw)}
+  #endCard h2{font-family:'Baloo 2';font-weight:800;font-size:34px;margin-bottom:8px}
+  #endCard p{opacity:.8;line-height:1.5;font-size:15.5px}
+  #endCard button{margin-top:18px;font-family:'Baloo 2';font-weight:800;font-size:17px;
+    background:var(--peach);border:2.5px solid var(--ink);border-radius:99px;padding:10px 30px;
+    box-shadow:0 4px 0 var(--ink)}
+  @media (max-width:640px){
+    #emojiBar{bottom:78px}
+    #hint{bottom:150px}
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="orbitBox">
+    <div class="planetDot"></div>
+    <div class="orbitRing"></div>
+    <div class="satellite"><span>✉️</span></div>
+  </div>
+  <div id="loadPct">0%</div>
+  <div class="meter"><i id="meterFill"></i></div>
+  <div id="loadStep">Warming up…</div>
+</div>
+
+<!-- TITLE -->
+<div id="title">
+  <h1>POSTLING</h1>
+  <div class="tag">It's a very small planet. But somebody has to deliver the letters.</div>
+  <button id="startBtn">Start the round ✉</button>
+  <button id="outfitBtn" style="font-family:'Baloo 2';font-weight:800;font-size:15px;background:var(--card);
+    border:2.5px solid var(--ink);border-radius:99px;padding:8px 22px;box-shadow:0 3px 0 var(--ink)">🎲 New outfit</button>
+  <div id="mpPanel">
+    <button class="mpBtn" id="hostBtn">🌍 Host a planet</button>
+    <input id="roomInput" maxlength="4" placeholder="CODE" autocomplete="off">
+    <button class="mpBtn" id="joinBtn">Join</button>
+  </div>
+  <div id="mpStatus">Solo mode — host a planet or enter a friend's 4-letter code to play together.</div>
+  <div class="controlsHint">
+    <span><b>WASD</b> walk</span>
+    <span><b>E</b> talk</span>
+    <span><b>drag</b> look around</span>
+    <span><b>1–4</b> emoji</span>
+  </div>
+  <div class="credit">An original, fully procedural homage to “Messenger” by Abeto — no assets copied, everything generated in your browser.</div>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="chip" id="questChip"><span class="env">📬</span><span id="questCount">Deliveries 0 / 5</span></div>
+  <div class="chip" id="secretChip">✦ <span id="secretCount">Secrets 1 / 3</span></div>
+  <div id="objective">Find Pip at the post office.</div>
+  <div id="topRight">
+    <div class="chip" id="playersChip" style="display:none">👥 <span id="playersCount">1</span><span id="roomCode"></span></div>
+    <button class="iconBtn" id="soundBtn" title="Music on/off">🔇</button>
+    <button class="iconBtn" id="helpBtn" title="Controls">?</button>
+  </div>
+  <div id="hint" style="display:none"><div class="chip" id="hintChip">E — Talk</div></div>
+  <div id="emojiBar">
+    <button class="emojiBtn" data-e="👋">👋</button>
+    <button class="emojiBtn" data-e="❤️">❤️</button>
+    <button class="emojiBtn" data-e="🎵">🎵</button>
+    <button class="emojiBtn" data-e="✨">✨</button>
+  </div>
+  <div id="joyZone"><div id="joyBase"></div><div id="joyKnob"></div></div>
+</div>
+
+<!-- DIALOGUE -->
+<div id="dlg"><div id="dlgName"></div><div id="dlgText"></div><div id="dlgMore">tap / space ▸</div></div>
+<div id="toast"></div>
+<div id="endCard"><div class="inner">
+  <h2>Route complete ✦</h2>
+  <p>All five letters found their homes. The planet is yours now — wander it, wave at the other couriers, watch the clouds go round.</p>
+  <button id="endClose">Keep wandering</button>
+</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<script>
+"use strict";
+/* =====================================================================
+   POSTLING — a tiny-planet delivery game.
+   Original homage to Abeto's "Messenger". All geometry, characters,
+   music and UI are procedurally generated. Three.js r128.
+===================================================================== */
+
+const R = 22;                       // planet radius
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, .1, 1200);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------- toon gradient + materials ---------- */
+const gradData = new Uint8Array([120,120,120,255, 190,190,190,255, 255,255,255,255]);
+const gradientMap = new THREE.DataTexture(gradData, 3, 1, THREE.RGBAFormat);
+gradientMap.minFilter = gradientMap.magFilter = THREE.NearestFilter;
+gradientMap.needsUpdate = true;
+const toon = c => new THREE.MeshToonMaterial({color:c, gradientMap});
+const OUTLINE_MAT = new THREE.MeshBasicMaterial({color:0x33291F, side:THREE.BackSide});
+function outline(mesh, s=1.045){
+  const o = new THREE.Mesh(mesh.geometry, OUTLINE_MAT);
+  o.scale.multiplyScalar(s);
+  mesh.add(o);
+  return mesh;
+}
+
+/* ---------- lights & sky ---------- */
+scene.add(new THREE.HemisphereLight(0xFFEBD0, 0x6E8F63, 0.85));
+const sun = new THREE.DirectionalLight(0xFFF2DC, 0.9);
+sun.position.set(60, 90, 40);
+scene.add(sun);
+
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite:false,
+  uniforms:{ top:{value:new THREE.Color(0x8FB9E8)}, bottom:{value:new THREE.Color(0xFFD9A8)} },
+  vertexShader:`varying vec3 vW; void main(){ vW=(modelMatrix*vec4(position,1.)).xyz;
+    gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader:`varying vec3 vW; uniform vec3 top,bottom;
+    void main(){ float h=normalize(vW).y*0.5+0.5;
+    gl_FragColor=vec4(mix(bottom,top,smoothstep(0.18,0.72,h)),1.);}`
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(700, 24, 16), skyMat));
+
+// sun disc + tiny far moon
+const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(14, 16, 12),
+  new THREE.MeshBasicMaterial({color:0xFFF6D8}));
+sunDisc.position.set(260, 380, 170); scene.add(sunDisc);
+const moon = new THREE.Group();
+const moonBody = outline(new THREE.Mesh(new THREE.SphereGeometry(4.2,14,10), toon(0xEAD9F4)));
+const moonRing = new THREE.Mesh(new THREE.TorusGeometry(6.6,.5,8,32), toon(0xF4C7A6));
+moonRing.rotation.x = Math.PI/2.4;
+moon.add(moonBody, moonRing); scene.add(moon);
+
+/* ---------- helpers ---------- */
+const V = (...a)=>new THREE.Vector3(...a);
+function randDir(){ // uniform point on unit sphere (r128 has no randomDirection)
+  const u = Math.random()*2-1, th = Math.random()*Math.PI*2, s = Math.sqrt(1-u*u);
+  return V(s*Math.cos(th), u, s*Math.sin(th));
+}
+/* ---------- zones (the original's seven distinctive spots) ---------- */
+const dirOf = (la,lo)=>latLon(la,lo,1);
+let OCEAN, ZONES; // initialised after latLon exists below
+function initZones(){
+  OCEAN = {
+    dir: dirOf(-30,-160),
+    cosWater: Math.cos(THREE.MathUtils.degToRad(32)),
+    cosSand:  Math.cos(THREE.MathUtils.degToRad(38)),
+    cosDeep:  Math.cos(THREE.MathUtils.degToRad(20)),
+  };
+  ZONES = [
+    {name:'The Beach',        dir:OCEAN.dir,        cosR:OCEAN.cosSand},
+    {name:'The Plaza',        dir:dirOf(  2, -30),  cosR:Math.cos(THREE.MathUtils.degToRad(11))},
+    {name:'The Temple',       dir:dirOf( 58,  80),  cosR:Math.cos(THREE.MathUtils.degToRad(13))},
+    {name:'The Cemetery',     dir:dirOf(-55, -75),  cosR:Math.cos(THREE.MathUtils.degToRad(11))},
+    {name:'The Factory',      dir:dirOf(-40,  40),  cosR:Math.cos(THREE.MathUtils.degToRad(11))},
+    {name:'The Forest',       dir:dirOf( 30, 170),  cosR:Math.cos(THREE.MathUtils.degToRad(14))},
+    {name:'The Neighborhood', dir:dirOf( 14,  10),  cosR:Math.cos(THREE.MathUtils.degToRad(13))},
+  ];
+}
+function jitterDir(dir, maxDeg){
+  const axis = V().crossVectors(dir, randDir()).normalize();
+  const q = new THREE.Quaternion().setFromAxisAngle(axis,
+    THREE.MathUtils.degToRad(Math.random()*maxDeg));
+  return dir.clone().applyQuaternion(q);
+}
+function capEdgePoint(dir, deg, around){
+  const ref = Math.abs(dir.y)<.9 ? V(0,1,0) : V(1,0,0);
+  const axis0 = V().crossVectors(dir, ref).normalize();
+  const spin = new THREE.Quaternion().setFromAxisAngle(dir, around);
+  const axis = axis0.applyQuaternion(spin);
+  const q = new THREE.Quaternion().setFromAxisAngle(axis, THREE.MathUtils.degToRad(deg));
+  return dir.clone().applyQuaternion(q).multiplyScalar(R);
+}
+function inOcean(pos){ return pos.clone().normalize().dot(OCEAN.dir) > OCEAN.cosSand; }
+function latLon(latDeg, lonDeg, r=R){
+  const la = THREE.MathUtils.degToRad(latDeg), lo = THREE.MathUtils.degToRad(lonDeg);
+  return V(Math.cos(la)*Math.cos(lo), Math.sin(la), Math.cos(la)*Math.sin(lo)).multiplyScalar(r);
+}
+function surfaceOrient(obj, pos, yaw=0){
+  obj.position.copy(pos);
+  const up = pos.clone().normalize();
+  obj.quaternion.setFromUnitVectors(V(0,1,0), up);
+  obj.rotateY(yaw);
+}
+function textSprite(text, opts={}){
+  const pad = 26, fs = opts.fs || 46;
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  ctx.font = `700 ${fs}px 'Baloo 2', sans-serif`;
+  const w = Math.ceil(ctx.measureText(text).width) + pad*2;
+  cv.width = w; cv.height = fs + pad*1.4;
+  const c2 = cv.getContext('2d');
+  c2.font = `700 ${fs}px 'Baloo 2', sans-serif`;
+  c2.fillStyle = opts.bg || 'rgba(251,243,226,.94)';
+  c2.strokeStyle = '#33291F'; c2.lineWidth = 5;
+  const r0 = cv.height/2;
+  c2.beginPath();
+  c2.moveTo(r0,0); c2.lineTo(w-r0,0); c2.arc(w-r0,r0,r0,-Math.PI/2,Math.PI/2);
+  c2.lineTo(r0,cv.height); c2.arc(r0,r0,r0,Math.PI/2,-Math.PI/2); c2.closePath();
+  c2.fill(); c2.stroke();
+  c2.fillStyle = opts.color || '#33291F';
+  c2.textAlign='center'; c2.textBaseline='middle';
+  c2.fillText(text, w/2, cv.height/2 + 3);
+  const tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, depthTest:true, transparent:true}));
+  const s = opts.scale || 0.016;
+  sp.scale.set(cv.width*s, cv.height*s, 1);
+  return sp;
+}
+function emojiSprite(e){
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const c = cv.getContext('2d');
+  c.font = '96px serif'; c.textAlign='center'; c.textBaseline='middle';
+  c.fillText(e, 64, 72);
+  const tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true}));
+  sp.scale.set(2.2,2.2,1);
+  return sp;
+}
+
+/* ---------- world building (staged for the loader) ---------- */
+const PALETTE = {
+  grass:0x84C476, grassLite:0xA5D793, sand:0xEFD9A0, trunk:0x8A5A3B,
+  leafA:0x5FA85B, leafB:0x7FBF72, leafC:0x99CF6F, wall:0xFBF3E2,
+  roof:0xE2795B, roofB:0xD9906B, water:0x7EC3DC, rock:0xB9B2A4, flower:[0xF2735E,0xF4C25E,0xE98BB5,0xFFFFFF]
+};
+const planet = new THREE.Group(); scene.add(planet);
+
+function buildPlanet(){
+  initZones();
+  // gently bumpy sphere
+  const geo = new THREE.SphereGeometry(R, 96, 64);
+  const pos = geo.attributes.position;
+  const v = V();
+  for(let i=0;i<pos.count;i++){
+    v.fromBufferAttribute(pos, i);
+    const n = 0.10*Math.sin(v.x*0.9)*Math.sin(v.y*1.1) + 0.08*Math.sin(v.z*1.4 + v.x*0.6);
+    v.setLength(R + n);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  planet.add(new THREE.Mesh(geo, toon(PALETTE.grass)));
+
+  // light-grass patches + sand patches (flattened discs hugging the surface)
+  for(let i=0;i<26;i++){
+    const p = randDir().multiplyScalar(R);
+    const d = new THREE.Mesh(new THREE.SphereGeometry(1.6+Math.random()*2.6, 14, 10),
+      toon(Math.random()<0.35 ? PALETTE.sand : PALETTE.grassLite));
+    d.scale.y = 0.06;
+    surfaceOrient(d, p, Math.random()*7);
+    planet.add(d);
+  }
+  // a little pond
+  const pond = new THREE.Mesh(new THREE.SphereGeometry(3.4, 20, 14), toon(PALETTE.water));
+  pond.scale.y = 0.05;
+  surfaceOrient(pond, latLon(-8, 150));
+  planet.add(pond);
+}
+
+function scatterProp(makeFn, count){
+  const avoid = ZONES.slice(1,5); // plaza, temple, cemetery, factory cores
+  for(let i=0;i<count;i++){
+    let p = null;
+    for(let tries=0; tries<24; tries++){
+      const cand = randDir();
+      if(cand.dot(OCEAN.dir) > OCEAN.cosSand) continue;
+      let clash = false;
+      for(const z of avoid) if(cand.dot(z.dir) > z.cosR){ clash = true; break; }
+      if(!clash){ p = cand.multiplyScalar(R); break; }
+    }
+    if(!p) continue;
+    const g = makeFn();
+    surfaceOrient(g, p, Math.random()*7);
+    planet.add(g);
+  }
+}
+function makeTree(){
+  const g = new THREE.Group();
+  const h = 1.6 + Math.random()*1.4;
+  const trunk = outline(new THREE.Mesh(new THREE.CylinderGeometry(.16,.24,h,7), toon(PALETTE.trunk)));
+  trunk.position.y = h/2;
+  g.add(trunk);
+  const leafs = [PALETTE.leafA, PALETTE.leafB, PALETTE.leafC];
+  let y = h;
+  const blobs = 2 + (Math.random()*2|0);
+  for(let i=0;i<blobs;i++){
+    const r = (1.15 - i*0.28) * (0.8+Math.random()*0.5);
+    const b = outline(new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8),
+      toon(leafs[(Math.random()*3)|0])), 1.06);
+    b.position.set((Math.random()-.5)*.3, y + r*0.55, (Math.random()-.5)*.3);
+    y += r*0.85;
+    g.add(b);
+  }
+  g.scale.setScalar(0.8 + Math.random()*0.6);
+  return g;
+}
+function makeRock(){
+  const r = .3 + Math.random()*.6;
+  const m = outline(new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), toon(PALETTE.rock)), 1.07);
+  m.position.y = r*.5;
+  const g = new THREE.Group(); g.add(m); return g;
+}
+function makeFlower(){
+  const g = new THREE.Group();
+  const st = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.4,5), toon(0x4E8F4B));
+  st.position.y = .2;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.12,8,6),
+    toon(PALETTE.flower[(Math.random()*4)|0]));
+  head.position.y = .45;
+  g.add(st, head); return g;
+}
+function makeLamp(){
+  const g = new THREE.Group();
+  const pole = outline(new THREE.Mesh(new THREE.CylinderGeometry(.07,.1,2.4,7), toon(0x5B4632)));
+  pole.position.y = 1.2;
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.26,10,8),
+    new THREE.MeshBasicMaterial({color:0xFFE9A8}));
+  bulb.position.y = 2.5;
+  g.add(pole, bulb); return g;
+}
+function makeHouse(roofC){
+  const g = new THREE.Group();
+  const bw = 2.4+Math.random()*.8, bh = 1.8+Math.random()*.5, bd = 2.2+Math.random()*.6;
+  const body = outline(new THREE.Mesh(new THREE.BoxGeometry(bw,bh,bd), toon(PALETTE.wall)), 1.03);
+  body.position.y = bh/2;
+  const roof = outline(new THREE.Mesh(new THREE.ConeGeometry(Math.max(bw,bd)*.78, 1.3, 4), toon(roofC)), 1.05);
+  roof.position.y = bh + .64; roof.rotation.y = Math.PI/4;
+  const door = new THREE.Mesh(new THREE.BoxGeometry(.6,.95,.08), toon(0x8A5A3B));
+  door.position.set(0,.5, bd/2+.05);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(.5,.5,.08), toon(0xBFE3EE));
+  win.position.set(bw/4+.2, bh*.62, bd/2+.05);
+  const chim = new THREE.Mesh(new THREE.BoxGeometry(.3,.7,.3), toon(0xC9B79A));
+  chim.position.set(-bw/4, bh+.9, 0);
+  g.add(body, roof, door, win, chim);
+  return g;
+}
+function buildProps(){
+  scatterProp(makeTree, 42);
+  scatterProp(makeRock, 22);
+  scatterProp(makeFlower, 60);
+  // a few free-standing houses for scenery
+  for(const [la,lo,ya] of [[40,-30,1],[-35,60,2.4],[12,-140,0.4],[-60,-80,5]]){
+    const h = makeHouse(Math.random()<.5?PALETTE.roof:PALETTE.roofB);
+    surfaceOrient(h, latLon(la,lo), ya);
+    planet.add(h);
+  }
+  for(const [la,lo] of [[8,18],[-18,105],[52,150],[-45,-20]]){
+    const l = makeLamp(); surfaceOrient(l, latLon(la,lo), 0); planet.add(l);
+  }
+  // clouds
+  for(let i=0;i<9;i++){
+    const c = new THREE.Group();
+    const puffs = 3 + (Math.random()*2|0);
+    for(let j=0;j<puffs;j++){
+      const p = new THREE.Mesh(new THREE.SphereGeometry(.9+Math.random()*.9, 10, 8),
+        new THREE.MeshToonMaterial({color:0xFFFFFF, gradientMap, transparent:true, opacity:.92}));
+      p.scale.y = .55;
+      p.position.set(j*1.1 - puffs*.5, Math.random()*.3, Math.random()*.6);
+      c.add(p);
+    }
+    const holder = new THREE.Group();
+    holder.rotation.set(Math.random()*7, Math.random()*7, Math.random()*7);
+    c.position.set(0, R+5.5+Math.random()*2.5, 0);
+    holder.add(c);
+    holder.userData.spin = (Math.random()*.5+.25) * (Math.random()<.5?-1:1) * .05;
+    clouds.push(holder);
+    scene.add(holder);
+  }
+}
+const clouds = [];
+
+/* ---------- the seven zones + dynamic water + secrets ---------- */
+let oceanMat, smokes = [], fountainBits = null, flameMesh = null;
+let rhoObj = null, factoryPos = null;
+const EXTRAS = []; // interactable non-quest things
+let secretsFound = 0; const SECRET_TOTAL = 3;
+
+function makePalm(){
+  const g = new THREE.Group();
+  let y = 0, lean = (Math.random()-.5)*.5;
+  for(let i=0;i<4;i++){
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(.11-i*.01,.14-i*.01,.8,7), toon(0x9A6B44));
+    seg.position.set(lean*i*.35, y+.4, 0); seg.rotation.z = lean*.35;
+    g.add(seg); y += .74;
+  }
+  const top = V(lean*4*.35, y+.15, 0);
+  for(let i=0;i<6;i++){
+    const f = new THREE.Mesh(new THREE.BoxGeometry(1.5,.05,.34), toon(0x5FA85B));
+    f.position.copy(top);
+    f.rotation.y = i/6*Math.PI*2;
+    f.rotation.z = -.45;
+    f.translateX(.6);
+    g.add(f);
+  }
+  outline(g.children[0],1.1);
+  return g;
+}
+function makeGrave(){
+  const g = new THREE.Group();
+  const s = new THREE.Mesh(new THREE.BoxGeometry(.55,.7,.16), toon(0xA9A9B0));
+  s.position.y = .35;
+  const t = new THREE.Mesh(new THREE.CylinderGeometry(.275,.275,.16,12,1,false,0,Math.PI), toon(0xA9A9B0));
+  t.rotation.set(Math.PI/2,0,Math.PI/2); t.position.y = .7;
+  outline(s,1.07);
+  g.add(s,t);
+  g.rotation.x = (Math.random()-.5)*.16; g.rotation.z = (Math.random()-.5)*.16;
+  return g;
+}
+function buildZones(){
+  /* --- OCEAN & BEACH: cap-masked sphere shells with an animated shore shader --- */
+  const capShell = (r, frag, transparent)=> new THREE.Mesh(
+    new THREE.SphereGeometry(r, 96, 64),
+    new THREE.ShaderMaterial({
+      transparent, depthWrite: !transparent,
+      uniforms:{ time:{value:0}, cdir:{value:OCEAN.dir},
+        edge:{value:0}, deep:{value:new THREE.Color(0x3E86B8)},
+        shallow:{value:new THREE.Color(0x8FD4DE)}, foamC:{value:new THREE.Color(0xFFFFFF)},
+        sandC:{value:new THREE.Color(0xEFD9A0)} },
+      vertexShader:`varying vec3 vD; void main(){ vD = normalize(position);
+        gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+      fragmentShader: frag }));
+  // sand ring
+  const sand = capShell(R+0.04, `
+    varying vec3 vD; uniform vec3 cdir; uniform float edge; uniform vec3 sandC;
+    void main(){
+      float d = dot(vD, cdir);
+      if(d < edge) discard;
+      float t = (d-edge)/(1.0-edge);
+      gl_FragColor = vec4(mix(sandC*0.94, sandC, smoothstep(0.0,0.3,t)), 1.0);
+    }`, false);
+  sand.material.uniforms.edge.value = OCEAN.cosSand;
+  planet.add(sand);
+  // water with moving foam bands + ripples (homage to *the* beach shader)
+  const water = capShell(R+0.09, `
+    varying vec3 vD; uniform vec3 cdir; uniform float edge; uniform float time;
+    uniform vec3 deep, shallow, foamC;
+    void main(){
+      float d = dot(vD, cdir);
+      if(d < edge) discard;
+      float t = (d-edge)/(1.0-edge);              // 0 shore .. 1 center
+      vec3 col = mix(shallow, deep, smoothstep(0.10, 0.75, t));
+      float wob = sin(vD.x*40.0+time)+cos(vD.z*36.0-time*1.3);
+      float rings = sin(t*46.0 - time*2.2 + wob*0.35);
+      col += 0.05*rings*(1.0-t);
+      float shoreFoam = 1.0 - smoothstep(0.0, 0.055 + 0.02*sin(time*1.7+wob), t);
+      float bandPos = 0.10 + 0.045*sin(time*0.9);
+      float band = 1.0 - smoothstep(0.0, 0.022, abs(t-bandPos));
+      float foam = clamp(shoreFoam + band*0.75, 0.0, 1.0);
+      col = mix(col, foamC, foam);
+      float alpha = mix(0.55, 0.94, smoothstep(0.0, 0.35, t));
+      gl_FragColor = vec4(col, max(alpha, foam));
+    }`, true);
+  water.material.uniforms.edge.value = OCEAN.cosWater;
+  oceanMat = water.material;
+  planet.add(water);
+  for(let i=0;i<5;i++){
+    const p = capEdgePoint(OCEAN.dir, 34+Math.random()*3, Math.random()*Math.PI*2);
+    const palm = makePalm(); surfaceOrient(palm, p, Math.random()*7); planet.add(palm);
+  }
+  /* alien pilot chilling on the beach (easter egg) */
+  const alienP = capEdgePoint(OCEAN.dir, 35, 1.2);
+  const alien = makeCharacter({jacket:0x9B8CCB, skin:0x9FD86B, capOn:false, bag:false, pants:0x6B5CA5});
+  alien.scale.setScalar(.85);
+  surfaceOrient(alien, alienP, Math.random()*7);
+  planet.add(alien);
+  const saucer = new THREE.Group();
+  const hull = outline(new THREE.Mesh(new THREE.SphereGeometry(1.6,18,10), toon(0xB9C2CC)),1.04);
+  hull.scale.y = .32; hull.position.y = .7;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(.7,14,10,0,Math.PI*2,0,Math.PI/2),
+    new THREE.MeshToonMaterial({color:0xBFE3EE, gradientMap, transparent:true, opacity:.7}));
+  dome.position.y = .95;
+  saucer.add(hull, dome);
+  saucer.rotation.z = .28;
+  const saucerP = capEdgePoint(OCEAN.dir, 36.5, 1.55);
+  surfaceOrient(saucer, saucerP, 0);
+  planet.add(saucer);
+  EXTRAS.push({obj:alien, name:'Alien pilot', secret:true, found:false, lines:[
+    "…what? The saucer's fine. It's supposed to lean like that.",
+    "Your planet has excellent beaches for a sphere this size. Five stars. Would crash again."]});
+
+  /* --- PLAZA: fountain, benches, guitarist Rho --- */
+  const plazaDir = ZONES[1].dir;
+  const plazaC = plazaDir.clone().multiplyScalar(R);
+  const plazaFloor = new THREE.Mesh(new THREE.SphereGeometry(3.6,18,12), toon(0xD9CBAF));
+  plazaFloor.scale.y = .05; surfaceOrient(plazaFloor, plazaC.clone());
+  planet.add(plazaFloor);
+  const fountain = new THREE.Group();
+  const basin = outline(new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.35,.5,14), toon(0xBFB6A2)),1.05);
+  basin.position.y = .25;
+  const fwater = new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.05,.1,14), toon(0x8FD4DE));
+  fwater.position.y = .48;
+  const spout = new THREE.Mesh(new THREE.CylinderGeometry(.14,.18,1.1,8), toon(0xBFB6A2));
+  spout.position.y = .9;
+  const blob = new THREE.Mesh(new THREE.SphereGeometry(.28,10,8),
+    new THREE.MeshToonMaterial({color:0xBFE9F2, gradientMap, transparent:true, opacity:.85}));
+  blob.position.y = 1.55;
+  fountain.add(basin, fwater, spout, blob);
+  surfaceOrient(fountain, plazaC.clone());
+  planet.add(fountain);
+  fountainBits = {blob, fwater};
+  for(const a of [0.9, 2.6, 4.4]){
+    const bench = new THREE.Group();
+    const seat = outline(new THREE.Mesh(new THREE.BoxGeometry(1.3,.1,.42), toon(0x8A5A3B)),1.06);
+    seat.position.y = .42;
+    const l1 = new THREE.Mesh(new THREE.BoxGeometry(.1,.42,.42), toon(0x5B4632));
+    const l2 = l1.clone(); l1.position.set(-.5,.21,0); l2.position.set(.5,.21,0);
+    bench.add(seat,l1,l2);
+    surfaceOrient(bench, capEdgePoint(plazaDir, 7, a), a+1.5);
+    planet.add(bench);
+  }
+  rhoObj = makeCharacter({jacket:0xE0A34E, cap:0x33291F, bag:false});
+  surfaceOrient(rhoObj, capEdgePoint(plazaDir, 6, 5.5), 3.6);
+  const rlabel = textSprite('Rho ♪', {scale:.011}); rlabel.position.y = 2.6; rhoObj.add(rlabel);
+  const guitar = new THREE.Mesh(new THREE.SphereGeometry(.34,10,8), toon(0xB5722F));
+  guitar.scale.set(1,1.25,.4); guitar.position.set(.42,.9,.34);
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(.08,.7,.08), toon(0x6B4426));
+  neck.position.set(.42,1.4,.34); neck.rotation.z = -.4;
+  rhoObj.userData.model.add(guitar, neck);
+  planet.add(rhoObj);
+  EXTRAS.push({obj:rhoObj, name:'Rho', secret:false, lines:[
+    "♪ …every letter is a little song somebody couldn't sing out loud ♪",
+    "Sit a while. The fountain does the percussion."]});
+
+  /* --- TEMPLE on the mountain + owl shrine + golden flame (easter eggs) --- */
+  const tDir = ZONES[2].dir, tC = tDir.clone().multiplyScalar(R);
+  const temple = new THREE.Group();
+  const plat = outline(new THREE.Mesh(new THREE.BoxGeometry(5,.6,4), toon(0xC9BBA4)),1.03);
+  plat.position.y = .3;
+  temple.add(plat);
+  for(const [px,pz] of [[-1.8,-1.3],[1.8,-1.3],[-1.8,1.3],[1.8,1.3]]){
+    const pil = new THREE.Mesh(new THREE.CylinderGeometry(.16,.18,1.9,8), toon(0xC44536));
+    pil.position.set(px,1.5,pz); temple.add(pil);
+  }
+  const roof1 = outline(new THREE.Mesh(new THREE.ConeGeometry(3.9,1.2,4), toon(0x8E3B49)),1.04);
+  roof1.position.y = 3.0; roof1.rotation.y = Math.PI/4;
+  const roof2 = outline(new THREE.Mesh(new THREE.ConeGeometry(2.4,.9,4), toon(0x8E3B49)),1.05);
+  roof2.position.y = 3.9; roof2.rotation.y = Math.PI/4;
+  temple.add(roof1, roof2);
+  surfaceOrient(temple, tC, .6);
+  planet.add(temple);
+  const torii = new THREE.Group();
+  for(const px of [-1,1]){
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(.13,.15,2.2,8), toon(0xC44536));
+    p.position.set(px,1.1,0); torii.add(p);
+  }
+  const bar1 = new THREE.Mesh(new THREE.BoxGeometry(2.9,.2,.26), toon(0xC44536));
+  bar1.position.y = 2.25;
+  const bar2 = new THREE.Mesh(new THREE.BoxGeometry(2.4,.16,.2), toon(0x33291F));
+  bar2.position.y = 1.85;
+  torii.add(bar1,bar2); outline(bar1,1.06);
+  surfaceOrient(torii, capEdgePoint(tDir, 8, 3.6), .6);
+  planet.add(torii);
+  // golden flame post (the flame-or-poo joke)
+  const flamePost = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.09,.12,1.5,7), toon(0x5B4632));
+  pole.position.y = .75;
+  flameMesh = new THREE.Mesh(new THREE.ConeGeometry(.28,.62,8),
+    new THREE.MeshBasicMaterial({color:0xFFC93E}));
+  flameMesh.position.y = 1.85;
+  flamePost.add(pole, flameMesh);
+  surfaceOrient(flamePost, capEdgePoint(tDir, 9.5, 4.4), 0);
+  planet.add(flamePost);
+  EXTRAS.push({obj:flamePost, name:'Golden flame', secret:true, found:false, lines:[
+    "A post crowned with a golden flame. Or… hm. From this angle it looks a bit like—",
+    "No. It's a flame. It's definitely a flame."]});
+  // owl shrine hidden beneath the temple, behind rocks
+  const shrine = new THREE.Group();
+  const sh = makeHouse(0x8E8E96); sh.scale.setScalar(.42);
+  const owl = new THREE.Group();
+  const ob = outline(new THREE.Mesh(new THREE.SphereGeometry(.28,10,8), toon(0x8A6E4B)),1.08);
+  ob.scale.y = 1.25; ob.position.y = .34;
+  const oe1 = new THREE.Mesh(new THREE.SphereGeometry(.07,6,6), new THREE.MeshBasicMaterial({color:0xFFF6D8}));
+  const oe2 = oe1.clone(); oe1.position.set(-.09,.5,.24); oe2.position.set(.09,.5,.24);
+  owl.add(ob,oe1,oe2); owl.position.set(0,1.05,.4);
+  shrine.add(sh, owl);
+  const shrineP = capEdgePoint(tDir, 14, 2.0);
+  surfaceOrient(shrine, shrineP, 1.2);
+  planet.add(shrine);
+  for(let i=0;i<3;i++){
+    const rk = makeRock(); rk.scale.setScalar(1.6);
+    surfaceOrient(rk, jitterDir(shrineP.clone().normalize(), 3).multiplyScalar(R), Math.random()*7);
+    planet.add(rk);
+  }
+  EXTRAS.push({obj:shrine, name:'Owl shrine', secret:true, found:false, hoot:true, lines:[
+    "A tiny shrine beneath the temple. The stone owl watches you with polished-pebble eyes.",
+    "Somewhere far off — or maybe very close — something answers: hoo. hoo."]});
+
+  /* --- CEMETERY --- */
+  const cDir = ZONES[3].dir;
+  for(let i=0;i<8;i++){
+    const gr = makeGrave();
+    surfaceOrient(gr, jitterDir(cDir, 7).multiplyScalar(R), Math.random()*7);
+    planet.add(gr);
+  }
+  const dead = new THREE.Group();
+  const dtr = outline(new THREE.Mesh(new THREE.CylinderGeometry(.14,.24,2.2,7), toon(0x4E3B2A)),1.08);
+  dtr.position.y = 1.1;
+  const br1 = new THREE.Mesh(new THREE.CylinderGeometry(.07,.1,1.1,6), toon(0x4E3B2A));
+  br1.position.set(.4,1.9,0); br1.rotation.z = -.8;
+  const br2 = br1.clone(); br2.position.set(-.35,1.7,.1); br2.rotation.z = .9;
+  dead.add(dtr,br1,br2);
+  surfaceOrient(dead, capEdgePoint(cDir, 8, 2.2), 0);
+  planet.add(dead);
+
+  /* --- FACTORY: building, chimney, drifting smoke, low hum --- */
+  const fDir = ZONES[4].dir, fC = fDir.clone().multiplyScalar(R);
+  const fac = new THREE.Group();
+  const hall = outline(new THREE.Mesh(new THREE.BoxGeometry(4.2,2.4,3), toon(0x9AA3B0)),1.03);
+  hall.position.y = 1.2;
+  const roofF = outline(new THREE.Mesh(new THREE.BoxGeometry(4.4,.3,3.2), toon(0x6E7684)),1.04);
+  roofF.position.y = 2.55;
+  const doorF = new THREE.Mesh(new THREE.BoxGeometry(1,1.4,.1), toon(0x4E5560));
+  doorF.position.set(0,.7,1.55);
+  const chim = outline(new THREE.Mesh(new THREE.CylinderGeometry(.3,.38,2.4,10), toon(0xB05A4A)),1.06);
+  chim.position.set(1.4,3.4,-.6);
+  fac.add(hall, roofF, doorF, chim);
+  surfaceOrient(fac, fC, 2.1);
+  planet.add(fac);
+  factoryPos = fC.clone();
+  fac.updateMatrixWorld(true);
+  const chimTip = chim.getWorldPosition(V()).addScaledVector(fDir, 1.2);
+  for(let i=0;i<6;i++){
+    const s = new THREE.Mesh(new THREE.SphereGeometry(.5,8,6),
+      new THREE.MeshToonMaterial({color:0xEDEDEA, gradientMap, transparent:true, opacity:0}));
+    scene.add(s);
+    smokes.push({m:s, t:i/6, base:chimTip, up:fDir.clone()});
+  }
+
+  /* --- FOREST: dense cluster --- */
+  const woDir = ZONES[5].dir;
+  for(let i=0;i<16;i++){
+    const tr = makeTree();
+    surfaceOrient(tr, jitterDir(woDir, 12).multiplyScalar(R), Math.random()*7);
+    planet.add(tr);
+  }
+
+  /* --- stepping-stone paths between the zones --- */
+  const stoneMat = toon(0xD9CBAF);
+  function pave(dirA, dirB){
+    const a = dirA.clone().normalize(), b = dirB.clone().normalize();
+    const steps = Math.max(4, Math.floor(a.angleTo(b)/0.045));
+    for(let i=1;i<steps;i++){
+      const d = a.clone().lerp(b, i/steps).normalize();
+      if(d.dot(OCEAN.dir) > OCEAN.cosSand) continue;
+      const jd = jitterDir(d, .7);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(.4+Math.random()*.18,.46,.09,7), stoneMat);
+      surfaceOrient(st, jd.multiplyScalar(R+.03), Math.random()*7);
+      planet.add(st);
+    }
+  }
+  pave(ZONES[6].dir, ZONES[1].dir);            // neighborhood → plaza
+  pave(ZONES[1].dir, ZONES[2].dir);            // plaza → temple
+  pave(ZONES[1].dir, OCEAN.dir);               // plaza → beach (stops at the sand)
+  pave(ZONES[6].dir, ZONES[4].dir);            // neighborhood → factory
+
+  /* --- birds circling the planet --- */
+  for(let i=0;i<3;i++){
+    const holder = new THREE.Group();
+    holder.rotation.set(Math.random()*7, Math.random()*7, Math.random()*7);
+    const bird = new THREE.Group();
+    const bb = new THREE.Mesh(new THREE.SphereGeometry(.22,8,6), toon(0xFFFFFF));
+    bb.scale.set(1,.8,1.4);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(.07,.18,6), toon(0xF4C25E));
+    beak.rotation.x = Math.PI/2; beak.position.z = .34;
+    const wL = new THREE.Mesh(new THREE.BoxGeometry(.55,.04,.26), toon(0xEDEDEA));
+    const wR = wL.clone();
+    wL.position.x = -.36; wR.position.x = .36;
+    bird.add(bb, beak, wL, wR);
+    const spd = (.12+Math.random()*.1)*(Math.random()<.5?-1:1);
+    bird.position.set(R + 2.6 + Math.random()*1.4, 0, 0);
+    bird.rotation.y = spd > 0 ? Math.PI : 0;
+    holder.add(bird);
+    holder.userData = {spd, wL, wR, ph:Math.random()*7};
+    scene.add(holder);
+    birds.push(holder);
+  }
+}
+const birds = [];
+
+/* ---------- characters ---------- */
+function makeCharacter({jacket=0xF2735E, cap=0x3E6FB0, skin=0xF6C9A0, bag=true, capOn=true, pants=0x445066}={}){
+  const g = new THREE.Group();          // root sits on the surface
+  const model = new THREE.Group();      // animated parts
+  g.add(model);
+  const legL = outline(new THREE.Mesh(new THREE.BoxGeometry(.22,.5,.22), toon(pants)),1.08);
+  const legR = legL.clone();
+  legL.position.set(-.15,.25,0); legR.position.set(.15,.25,0);
+  const body = outline(new THREE.Mesh(new THREE.BoxGeometry(.72,.8,.5), toon(jacket)),1.06);
+  body.position.y = .9;
+  const armL = outline(new THREE.Mesh(new THREE.BoxGeometry(.18,.6,.2), toon(jacket)),1.1);
+  const armR = armL.clone();
+  armL.position.set(-.48,.95,0); armR.position.set(.48,.95,0);
+  const head = outline(new THREE.Mesh(new THREE.SphereGeometry(.4,14,12), toon(skin)),1.06);
+  head.position.y = 1.62;
+  const eyeMat = new THREE.MeshBasicMaterial({color:0x33291F});
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(.055,6,6), eyeMat);
+  const eyeR = eyeL.clone();
+  eyeL.position.set(-.13,1.68,.355); eyeR.position.set(.13,1.68,.355);
+  const bluMat = new THREE.MeshBasicMaterial({color:0xF2A18C});
+  const bluL = new THREE.Mesh(new THREE.SphereGeometry(.06,6,6), bluMat);
+  const bluR = bluL.clone();
+  bluL.scale.set(1,.6,.4); bluR.scale.set(1,.6,.4);
+  bluL.position.set(-.22,1.56,.33); bluR.position.set(.22,1.56,.33);
+  model.add(legL, legR, body, armL, armR, head, eyeL, eyeR, bluL, bluR);
+  if(capOn){
+    const capTop = outline(new THREE.Mesh(new THREE.SphereGeometry(.42,14,10,0,Math.PI*2,0,Math.PI/2), toon(cap)),1.05);
+    capTop.position.y = 1.7;
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(.5,.06,.3), toon(cap));
+    brim.position.set(0,1.7,.42);
+    model.add(capTop, brim);
+  }
+  if(bag){
+    const b = outline(new THREE.Mesh(new THREE.BoxGeometry(.34,.42,.6), toon(0xF4C25E)),1.07);
+    b.position.set(-.6,.85,0);
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(.08,.7,.1), toon(0x8A5A3B));
+    strap.position.set(-.3,1.2,0); strap.rotation.z = .6;
+    model.add(b, strap);
+  }
+  // blob shadow
+  const sh = new THREE.Mesh(new THREE.CircleGeometry(.55, 20),
+    new THREE.MeshBasicMaterial({color:0x33291F, transparent:true, opacity:.22}));
+  sh.rotation.x = -Math.PI/2; sh.position.y = .04;
+  g.add(sh);
+  g.userData = {model, legL, legR, armL, armR,
+    wetMats: [legL.material, body.material, armL.material].map(m =>
+      ({m, base: m.color.clone(), dark: m.color.clone().multiplyScalar(.5)}))};
+  return g;
+}
+
+/* ---------- NPCs & quest ---------- */
+const NPCS = {
+  pip:   {name:'Pip',   lat: 14, lon:  10, jacket:0x3E6FB0, cap:0xF2735E, house:true,  post:true},
+  suki:  {name:'Suki',  lat:-24, lon:  95, jacket:0xE98BB5, cap:0xFFFFFF, house:true},
+  ordo:  {name:'Ordo',  lat: -8, lon: 156, jacket:0x4E8F4B, cap:0xF4C25E, house:false},
+  mirin: {name:'Mirin', lat: 48, lon:-120, jacket:0xF4C25E, cap:0x4E8F4B, house:true},
+  bo:    {name:'Bo',    lat: 83, lon: -40, jacket:0x6B5CA5, cap:0x33291F, house:false},
+};
+const CHAIN = [
+  {npc:'pip',   deliver:false, lines:[
+    "Morning, courier! You're the new Postling, right? Perfect timing.",
+    "Five letters came in overnight and my knees came in creaky. The route is yours.",
+    "First one is for Suki the baker — head over the horizon, any horizon, you can't really get lost here.",
+  ], objective:"Deliver letter №1 to Suki the baker."},
+  {npc:'suki',  deliver:true, lines:[
+    "A letter? For me? …it's from my sister. She says my sourdough survived the ferry ride. HA!",
+    "While you're out — could you run this one to Ordo down by the pond? He never checks his box.",
+  ], objective:"Deliver letter №2 to Ordo at the pond."},
+  {npc:'ordo',  deliver:true, lines:[
+    "Shhh… the fish can hear paper. …Oh. It's the tide chart I ordered. For a pond. Don't ask.",
+    "Take this one up to Mirin's garden, would you? Careful, her hedge bites. Kidding. Mostly.",
+  ], objective:"Deliver letter №3 to Mirin the gardener."},
+  {npc:'mirin', deliver:true, lines:[
+    "Seeds! Moon-melon seeds! I've waited three seasons for these.",
+    "One more favour — Bo lives at the very top of the world with that telescope. This one's theirs.",
+  ], objective:"Deliver letter №4 to Bo at the north pole."},
+  {npc:'bo',    deliver:true, lines:[
+    "…did you know if you walk in a straight line here, you come back to where you started? Anyway. Hello.",
+    "A star chart! Finally. Last thing: bring Pip this thank-you note. From all of us, really.",
+  ], objective:"Deliver letter №5 back to Pip."},
+  {npc:'pip',   deliver:true, lines:[
+    "Back already? And a thank-you note… well. Don't tell anyone the postmaster got misty-eyed.",
+    "That's the whole route, Postling. The planet's small — but the job matters. Off you go, wander a bit.",
+  ], objective:"Route complete. Wander freely ✦"},
+];
+const IDLE = {
+  pip:"Rain or shine or low orbit — the mail moves.",
+  suki:"Come back at sunset, the ovens sing.",
+  ordo:"The pond is small but the fish dream big.",
+  mirin:"Everything grows if you're patient. Even planets.",
+  bo:"On a clear night you can see your own house from here. Obviously.",
+};
+const npcObjs = {};
+const npcAnims = [];
+function makeMailbox(){
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.06,.08,.9,7), toon(0x5B4632));
+  pole.position.y = .45;
+  const box = outline(new THREE.Mesh(new THREE.BoxGeometry(.5,.34,.32), toon(0xF2735E)),1.08);
+  box.position.y = 1.0;
+  const flag = new THREE.Mesh(new THREE.BoxGeometry(.05,.22,.08), toon(0xF4C25E));
+  flag.position.set(.28,1.16,0);
+  g.add(pole, box, flag);
+  return g;
+}
+function buildNPCs(){
+  for(const key in NPCS){
+    const d = NPCS[key];
+    const pos = latLon(d.lat, d.lon);
+    const ch = makeCharacter({jacket:d.jacket, cap:d.cap, bag:false});
+    surfaceOrient(ch, pos, Math.random()*7);
+    const label = textSprite(d.name, {scale:.013});
+    label.position.y = 2.6; ch.add(label);
+    planet.add(ch);
+    npcObjs[key] = ch;
+    npcAnims.push({g:ch, phase:Math.random()*7, emoT:8+Math.random()*16});
+    if(d.house){
+      const h = makeHouse(d.post ? 0x3E6FB0 : PALETTE.roof);
+      const hp = pos.clone().normalize().multiplyScalar(R);
+      const side = V().crossVectors(hp, V(0,1,0.3)).normalize().multiplyScalar(3.4);
+      surfaceOrient(h, hp.add(side).setLength(R), Math.random()*7);
+      planet.add(h);
+      const mb = makeMailbox();
+      const mSide = V().crossVectors(pos, V(0,.3,1)).normalize().multiplyScalar(2.2);
+      surfaceOrient(mb, pos.clone().add(mSide).setLength(R), Math.random()*7);
+      planet.add(mb);
+      if(d.post){
+        const sign = textSprite('✉ POST', {scale:.011, bg:'rgba(62,111,176,.95)', color:'#FBF3E2'});
+        sign.position.y = 3.6; h.add(sign);
+      }
+    }
+  }
+}
+
+/* ---------- player, camera, beacon, arrow ---------- */
+let player, arrow, beacon;
+const OUTFITS = {
+  jacket:[0xF2735E,0x3E6FB0,0x4E8F4B,0xE0A34E,0xE98BB5,0x6B5CA5,0x33291F],
+  cap:[0x3E6FB0,0xF2735E,0xF4C25E,0x33291F,0xFFFFFF,0x4E8F4B],
+  skin:[0xF6C9A0,0xE0AC7E,0xC68B59,0x8D5A3A,0xFFDBB8],
+  pants:[0x445066,0x6B5CA5,0x4E3B2A,0x8E3B49],
+};
+const pick = a => a[(Math.random()*a.length)|0];
+function randomOutfit(){
+  return {jacket:pick(OUTFITS.jacket), cap:pick(OUTFITS.cap),
+    skin:pick(OUTFITS.skin), pants:pick(OUTFITS.pants), capOn:Math.random()<.8};
+}
+function rebuildPlayerOutfit(){
+  if(!player) return;
+  const pos = player.position.clone(), q = player.quaternion.clone();
+  scene.remove(player);
+  playerOutfit = randomOutfit();
+  player = makeCharacter(playerOutfit);
+  player.position.copy(pos); player.quaternion.copy(q);
+  scene.add(player);
+  netRefit();
+  renderer.render(scene, camera);
+}
+function buildPlayer(){
+  playerOutfit = randomOutfit();
+  player = makeCharacter(playerOutfit);
+  const startP = latLon(10, -14);
+  surfaceOrient(player, startP, 2.4);
+  scene.add(player);
+
+  // direction arrow that floats above the player
+  arrow = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.06,.06,.7,6), toon(0xF2735E));
+  shaft.rotation.x = Math.PI/2; shaft.position.z = .35;
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(.16,.34,8), toon(0xF2735E));
+  tip.rotation.x = Math.PI/2; tip.position.z = .85;
+  arrow.add(shaft, tip);
+  scene.add(arrow);
+
+  // beacon over current target
+  beacon = new THREE.Group();
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(.5,.8,7,12,1,true),
+    new THREE.MeshBasicMaterial({color:0xF4C25E, transparent:true, opacity:.28,
+      side:THREE.DoubleSide, depthWrite:false}));
+  col.position.y = 4.5;
+  const env = emojiSprite('✉️'); env.position.y = 8.6; env.scale.set(3,3,1);
+  beacon.add(col, env);
+  beacon.userData.env = env;
+  scene.add(beacon);
+
+  // camera initial placement
+  const up = player.position.clone().normalize();
+  const back = V(0,0,1).applyQuaternion(player.quaternion).multiplyScalar(-1);
+  camera.position.copy(player.position).addScaledVector(back, -11).addScaledVector(up, 6.5);
+  camera.up.copy(up);
+  camera.lookAt(player.position);
+}
+
+/* ---------- wandering "other couriers" (ambient bots) ---------- */
+const bots = [];
+function buildBots(){
+  const specs = [
+    {name:'kiwi', jacket:0x4E8F4B, cap:0xF4C25E, lat:-40, lon:-60},
+    {name:'moth', jacket:0x6B5CA5, cap:0xE98BB5, lat: 30, lon: 170},
+  ];
+  for(const s of specs){
+    const b = makeCharacter({jacket:s.jacket, cap:s.cap});
+    surfaceOrient(b, latLon(s.lat, s.lon), Math.random()*7);
+    const label = textSprite(s.name, {scale:.011, bg:'rgba(51,41,31,.85)', color:'#FBF3E2'});
+    label.position.y = 2.6; b.add(label);
+    scene.add(b);
+    bots.push({g:b, heading:Math.random()*7, walkT:0, pause:0, emoT:6+Math.random()*8, phase:Math.random()*7});
+  }
+}
+
+/* ---------- input ---------- */
+const keys = {};
+addEventListener('keydown', e=>{
+  keys[e.code] = true;
+  if(running && ['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
+    e.preventDefault();
+  if(e.code==='KeyE') tryInteract();
+  if(e.code==='Space' || e.code==='Enter'){ if(dlgOpen) advanceDialogue(); }
+  const em = {Digit1:'👋',Digit2:'❤️',Digit3:'🎵',Digit4:'✨'}[e.code];
+  if(em && running) spawnEmoji(player, em);
+});
+addEventListener('keyup', e=>keys[e.code]=false);
+
+// pointer drag = orbit; separate joystick zone on touch
+let dragging=false, lastX=0, joyId=null, dragId=null;
+const joy = {x:0, y:0};
+const joyZone = document.getElementById('joyZone');
+const joyBase = document.getElementById('joyBase'), joyKnob = document.getElementById('joyKnob');
+let camYawVel = 0;
+
+if('ontouchstart' in window) document.body.classList.add('touch');
+
+addEventListener('pointerdown', e=>{
+  if(!running) return;
+  if(e.target.closest('button') || e.target.closest('#dlg')) return;
+  const zone = joyZone.getBoundingClientRect();
+  const inJoy = document.body.classList.contains('touch') &&
+    e.clientX < zone.right && e.clientY > zone.top;
+  if(inJoy && joyId===null){
+    joyId = e.pointerId;
+    joy.baseX = e.clientX; joy.baseY = e.clientY;
+    joyBase.style.display = joyKnob.style.display = 'block';
+    joyBase.style.left = (e.clientX-52)+'px'; joyBase.style.top = (e.clientY-52)+'px';
+    joyKnob.style.left = (e.clientX-24)+'px'; joyKnob.style.top = (e.clientY-24)+'px';
+  } else if(dragId===null){
+    dragId = e.pointerId; dragging = true; lastX = e.clientX;
+  }
+});
+addEventListener('pointermove', e=>{
+  if(e.pointerId===joyId){
+    let dx = e.clientX - joy.baseX, dy = e.clientY - joy.baseY;
+    const len = Math.hypot(dx,dy), max = 46;
+    if(len>max){ dx*=max/len; dy*=max/len; }
+    joy.x = dx/max; joy.y = -dy/max;
+    joyKnob.style.left = (joy.baseX+dx-24)+'px'; joyKnob.style.top = (joy.baseY+dy-24)+'px';
+  } else if(e.pointerId===dragId && dragging){
+    camYawVel += (e.clientX - lastX) * 0.0035;
+    lastX = e.clientX;
+  }
+});
+function endPointer(e){
+  if(e.pointerId===joyId){ joyId=null; joy.x=joy.y=0;
+    joyBase.style.display=joyKnob.style.display='none'; }
+  if(e.pointerId===dragId){ dragId=null; dragging=false; }
+}
+addEventListener('pointerup', endPointer);
+addEventListener('pointercancel', endPointer);
+
+document.querySelectorAll('.emojiBtn').forEach(b=>
+  b.addEventListener('click', ()=>{ if(running) spawnEmoji(player, b.dataset.e); }));
+
+/* ---------- emoji bubbles ---------- */
+const bubbles = [];
+function spawnEmoji(who, e){
+  const sp = emojiSprite(e);
+  const up = who.position.clone().normalize();
+  sp.position.copy(who.position).addScaledVector(up, 3.1);
+  sp.userData = {t:0, up};
+  scene.add(sp); bubbles.push(sp);
+  if(who === player) netEmote(e);
+  sfxBlip(660);
+}
+
+/* ---------- dialogue & quest ---------- */
+const dlg = document.getElementById('dlg');
+const dlgName = document.getElementById('dlgName');
+const dlgText = document.getElementById('dlgText');
+let dlgOpen = false, dlgLines = [], dlgIdx = 0, dlgAfter = null;
+let stage = 0, delivered = 0, running = false, finished = false;
+
+function openDialogue(name, lines, after){
+  dlgOpen = true; dlgLines = lines; dlgIdx = 0; dlgAfter = after || null;
+  dlgName.textContent = name;
+  dlgText.textContent = lines[0];
+  dlg.classList.add('show');
+  sfxBlip(520);
+}
+function advanceDialogue(){
+  dlgIdx++;
+  if(dlgIdx < dlgLines.length){
+    dlgText.textContent = dlgLines[dlgIdx];
+    sfxBlip(480);
+  } else {
+    dlg.classList.remove('show'); dlgOpen = false;
+    if(dlgAfter) dlgAfter();
+  }
+}
+dlg.addEventListener('click', advanceDialogue);
+
+function currentTargetKey(){ return finished ? null : CHAIN[stage].npc; }
+function nearestThing(){
+  let best = null;
+  for(const key in npcObjs){
+    const d = npcObjs[key].position.distanceTo(player.position);
+    if(!best || d < best.dist) best = {kind:'npc', key, dist:d, name:NPCS[key].name};
+  }
+  for(const it of EXTRAS){
+    const d = it.obj.position.distanceTo(player.position);
+    if(!best || d < best.dist) best = {kind:'extra', it, dist:d, name:it.name};
+  }
+  return best;
+}
+function foundSecret(it){
+  if(it.found) return;
+  it.found = true; secretsFound++;
+  const chip = document.getElementById('secretChip');
+  chip.style.display = 'flex';
+  document.getElementById('secretCount').textContent = `Secrets ${secretsFound} / ${SECRET_TOTAL}`;
+  sfxChime();
+  toast(secretsFound===SECRET_TOTAL ? 'All secrets found ✦✦✦' : 'Secret found ✦');
+  if(it.hoot) sfxHoot();
+}
+function tryInteract(){
+  if(!running || dlgOpen) return;
+  const near = nearestThing();
+  if(!near || near.dist > 4.2) return;
+  if(near.kind === 'extra'){
+    const it = near.it;
+    openDialogue(it.name, it.lines, ()=>{ if(it.secret) foundSecret(it); });
+    return;
+  }
+  const key = near.key, def = NPCS[key];
+  if(key === currentTargetKey()){
+    const step = CHAIN[stage];
+    openDialogue(def.name, step.lines, ()=>{
+      if(step.deliver){ delivered++; sfxChime();
+        toast(`Letter ${delivered} of 5 delivered ✉`); }
+      document.getElementById('questCount').textContent = `Deliveries ${delivered} / 5`;
+      stage++;
+      if(stage >= CHAIN.length){
+        finished = true;
+        document.getElementById('objective').textContent = CHAIN[CHAIN.length-1].objective;
+        beacon.visible = arrow.visible = false;
+        setTimeout(()=>document.getElementById('endCard').classList.add('show'), 700);
+      } else {
+        document.getElementById('objective').textContent = CHAIN[stage-1].objective;
+      }
+    });
+  } else {
+    openDialogue(def.name, [IDLE[key]]);
+  }
+}
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+document.getElementById('hintChip').addEventListener('click', tryInteract);
+document.getElementById('endClose').addEventListener('click',
+  ()=>document.getElementById('endCard').classList.remove('show'));
+document.getElementById('helpBtn').addEventListener('click',
+  ()=>toast('WASD / joystick to walk · E or tap chip to talk · drag to look · 1–4 emoji'));
+
+/* ---------- lo-fi generative music (WebAudio, no files) ---------- */
+let AC=null, musicOn=false, chordTimer=null, bellTimer=null, masterG=null;
+const CHORDS = [
+  [174.61, 220.00, 261.63, 329.63],   // Fmaj7
+  [146.83, 220.00, 261.63, 349.23],   // Dm7
+  [130.81, 196.00, 246.94, 329.63],   // Cmaj7
+  [110.00, 164.81, 220.00, 261.63],   // Am7
+];
+const PENTA = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25];
+function initAudio(){
+  if(AC) return;
+  AC = new (window.AudioContext||window.webkitAudioContext)();
+  masterG = AC.createGain(); masterG.gain.value = 0; masterG.connect(AC.destination);
+  // vinyl hiss
+  const len = AC.sampleRate*2, buf = AC.createBuffer(1,len,AC.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i] = (Math.random()*2-1)*0.35;
+  const noise = AC.createBufferSource(); noise.buffer = buf; noise.loop = true;
+  const nf = AC.createBiquadFilter(); nf.type='lowpass'; nf.frequency.value=2600;
+  const ng = AC.createGain(); ng.gain.value = .015;
+  noise.connect(nf).connect(ng).connect(masterG); noise.start();
+  let ci = 0;
+  const playChord = ()=>{
+    const now = AC.currentTime, ch = CHORDS[ci++ % CHORDS.length];
+    for(const f of ch){
+      for(const det of [-4, 4]){
+        const o = AC.createOscillator(); o.type='triangle';
+        o.frequency.value = f; o.detune.value = det;
+        const g = AC.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(.035, now+1.6);
+        g.gain.linearRampToValueAtTime(0, now+7.6);
+        const lp = AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=900;
+        o.connect(g).connect(lp).connect(masterG);
+        o.start(now); o.stop(now+8);
+      }
+    }
+  };
+  playChord();
+  chordTimer = setInterval(playChord, 7400);
+  initSpatialAudio();
+  bellTimer = setInterval(()=>{
+    if(!musicOn || Math.random()<.35) return;
+    const now = AC.currentTime;
+    const o = AC.createOscillator(); o.type='sine';
+    o.frequency.value = PENTA[(Math.random()*PENTA.length)|0]*2;
+    const g = AC.createGain();
+    g.gain.setValueAtTime(.05, now);
+    g.gain.exponentialRampToValueAtTime(.0001, now+2.2);
+    o.connect(g).connect(masterG); o.start(now); o.stop(now+2.3);
+  }, 3600);
+}
+function setMusic(on){
+  musicOn = on;
+  document.getElementById('soundBtn').textContent = on ? '🔊' : '🔇';
+  if(on){ initAudio(); AC.resume();
+    masterG.gain.cancelScheduledValues(AC.currentTime);
+    masterG.gain.linearRampToValueAtTime(1, AC.currentTime+1.5);
+  } else if(AC){
+    masterG.gain.cancelScheduledValues(AC.currentTime);
+    masterG.gain.linearRampToValueAtTime(0, AC.currentTime+.6);
+  }
+}
+document.getElementById('soundBtn').addEventListener('click', ()=>setMusic(!musicOn));
+function sfxBlip(f){
+  if(!AC || !musicOn) return;
+  const now = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type='square'; o.frequency.value=f;
+  g.gain.setValueAtTime(.03, now); g.gain.exponentialRampToValueAtTime(.0001, now+.12);
+  o.connect(g).connect(masterG); o.start(now); o.stop(now+.13);
+}
+function sfxChime(){
+  if(!AC || !musicOn) return;
+  [523.25, 659.25, 783.99].forEach((f,i)=>{
+    const now = AC.currentTime + i*.12;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type='sine'; o.frequency.value=f;
+    g.gain.setValueAtTime(.07, now); g.gain.exponentialRampToValueAtTime(.0001, now+.9);
+    o.connect(g).connect(masterG); o.start(now); o.stop(now+1);
+  });
+}
+function sfxHoot(){
+  if(!AC || !musicOn) return;
+  [[520,.0],[400,.35]].forEach(([f,dl])=>{
+    const now = AC.currentTime + dl;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(f, now);
+    o.frequency.exponentialRampToValueAtTime(f*.82, now+.25);
+    g.gain.setValueAtTime(.09, now); g.gain.exponentialRampToValueAtTime(.0001, now+.32);
+    o.connect(g).connect(masterG); o.start(now); o.stop(now+.35);
+  });
+}
+function sfxSplash(){
+  if(!AC || !musicOn) return;
+  const now = AC.currentTime;
+  const len = AC.sampleRate*.3, buf = AC.createBuffer(1,len,AC.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i] = (Math.random()*2-1)*(1-i/len);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type='bandpass'; f.frequency.value=900; f.Q.value=.7;
+  const g = AC.createGain(); g.gain.value=.12;
+  src.connect(f).connect(g).connect(masterG); src.start(now);
+}
+function sfxStep(wet){
+  if(!AC || !musicOn) return;
+  const now = AC.currentTime;
+  const len = AC.sampleRate*.05, buf = AC.createBuffer(1,len,AC.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i] = (Math.random()*2-1)*(1-i/len);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = wet ? 'bandpass' : 'lowpass';
+  f.frequency.value = wet ? 1400 : 320;
+  const g = AC.createGain(); g.gain.value = wet ? .045 : .05;
+  src.connect(f).connect(g).connect(masterG); src.start(now);
+}
+/* --- positional sound: Rho's guitar and the factory hum grow as you approach --- */
+let guitarGain=null, guitarPan=null, humGain=null;
+const GUITAR_SEQ = [220, 261.63, 329.63, 440, 329.63, 261.63, 293.66, 261.63];
+let gStep = 0;
+function initSpatialAudio(){
+  if(!AC || guitarGain) return;
+  guitarGain = AC.createGain(); guitarGain.gain.value = 0;
+  guitarPan = AC.createStereoPanner ? AC.createStereoPanner() : null;
+  if(guitarPan){ guitarGain.connect(guitarPan); guitarPan.connect(masterG); }
+  else guitarGain.connect(masterG);
+  setInterval(()=>{
+    if(!musicOn || guitarGain.gain.value < .003) return;
+    const now = AC.currentTime, f = GUITAR_SEQ[gStep++ % GUITAR_SEQ.length];
+    const o = AC.createOscillator(); o.type='triangle'; o.frequency.value=f;
+    const g = AC.createGain();
+    g.gain.setValueAtTime(.16, now);
+    g.gain.exponentialRampToValueAtTime(.0001, now+.42);
+    o.connect(g).connect(guitarGain); o.start(now); o.stop(now+.45);
+  }, 290);
+  const hum = AC.createOscillator(); hum.type='sawtooth'; hum.frequency.value=52;
+  const hf = AC.createBiquadFilter(); hf.type='lowpass'; hf.frequency.value=130;
+  humGain = AC.createGain(); humGain.gain.value = 0;
+  hum.connect(hf).connect(humGain).connect(masterG); hum.start();
+}
+function updateSpatialAudio(){
+  if(!AC || !guitarGain || !player) return;
+  if(rhoObj){
+    const d = player.position.distanceTo(rhoObj.position);
+    const v = Math.pow(Math.max(0, 1 - d/26), 2) * .6;
+    guitarGain.gain.setTargetAtTime(v, AC.currentTime, .2);
+    if(guitarPan){
+      const camR = V(1,0,0).applyQuaternion(camera.quaternion);
+      const to = rhoObj.position.clone().sub(camera.position).normalize();
+      guitarPan.pan.setTargetAtTime(THREE.MathUtils.clamp(camR.dot(to), -1, 1)*.8,
+        AC.currentTime, .2);
+    }
+  }
+  if(factoryPos && humGain){
+    const d = player.position.distanceTo(factoryPos);
+    humGain.gain.setTargetAtTime(Math.max(0, 1 - d/20)*.1, AC.currentTime, .3);
+  }
+}
+
+/* ---------- multiplayer (PeerJS / WebRTC, host acts as relay) ---------- */
+const NAMES = ['fern','mochi','pebble','juniper','tofu','clover','biscuit','maple','sprout','waffle','plum','acorn','nori','poppy'];
+let playerOutfit = null;
+const NET = {peer:null, hostConn:null, conns:new Map(), role:'solo', code:'',
+  name:NAMES[(Math.random()*NAMES.length)|0], sendT:0};
+const remotes = new Map(); // id -> {g, tp, tq, walk, name}
+const MAX_PLAYERS = 10;    // same cap as the original — calm over crowds
+
+const mpStatus = m => { const el = document.getElementById('mpStatus'); if(el) el.textContent = m; };
+function randCode(){
+  const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s='';
+  for(let i=0;i<4;i++) s += A[(Math.random()*A.length)|0];
+  return s;
+}
+function netActive(){ return NET.role !== 'solo'; }
+function playerCount(){ return remotes.size + 1; }
+function refreshPlayersChip(){
+  const chip = document.getElementById('playersChip');
+  chip.style.display = netActive() ? 'flex' : 'none';
+  document.getElementById('playersCount').textContent = playerCount();
+  document.getElementById('roomCode').textContent = NET.code ? ' · '+NET.code : '';
+  for(const b of bots) b.g.visible = !netActive();
+}
+function ensureRemote(id, name, outfit, p, q){
+  if(remotes.has(id) || id === undefined) return remotes.get(id);
+  const g = makeCharacter(outfit || {});
+  const label = textSprite(name || 'courier', {scale:.011, bg:'rgba(62,111,176,.92)', color:'#FBF3E2'});
+  label.position.y = 2.6; g.add(label);
+  if(p) g.position.fromArray(p); else surfaceOrient(g, latLon(10,-14));
+  if(q) g.quaternion.fromArray(q);
+  scene.add(g);
+  const r = {g, tp:g.position.clone(), tq:g.quaternion.clone(), walk:0, name:name||'courier'};
+  remotes.set(id, r);
+  refreshPlayersChip();
+  return r;
+}
+function removeRemote(id){
+  const r = remotes.get(id);
+  if(!r) return;
+  scene.remove(r.g);
+  remotes.delete(id);
+  refreshPlayersChip();
+  toast(`${r.name} drifted off`);
+}
+function clearNet(msg){
+  for(const id of [...remotes.keys()]) { scene.remove(remotes.get(id).g); remotes.delete(id); }
+  try{ NET.peer && NET.peer.destroy(); }catch(e){}
+  NET.peer = null; NET.hostConn = null; NET.conns.clear();
+  NET.role = 'solo'; NET.code = '';
+  refreshPlayersChip();
+  if(msg){ mpStatus(msg); toast(msg); }
+}
+function hostBroadcast(msg, exceptId){
+  for(const [id, c] of NET.conns) if(id !== exceptId && c.open) c.send(msg);
+}
+function snapshotFor(){
+  const players = [{id:'HOST', name:NET.name, outfit:playerOutfit,
+    p:player.position.toArray(), q:player.quaternion.toArray()}];
+  for(const [id, r] of remotes) players.push({id, name:r.name, outfit:r.outfit,
+    p:r.g.position.toArray(), q:r.g.quaternion.toArray()});
+  return {t:'world', players};
+}
+function hostOnData(conn, d){
+  const id = conn.peer;
+  if(d.t === 'hi'){
+    if(playerCount() >= MAX_PLAYERS){ try{conn.send({t:'full'}); conn.close();}catch(e){} return; }
+    NET.conns.set(id, conn);
+    const r = ensureRemote(id, d.name, d.outfit);
+    r.outfit = d.outfit;
+    conn.send(snapshotFor());
+    hostBroadcast({t:'join', id, name:d.name, outfit:d.outfit}, id);
+    toast(`${d.name} landed ✦`);
+  } else if(d.t === 'pos'){
+    const r = remotes.get(id); if(!r) return;
+    r.tp.fromArray(d.p); r.tq.fromArray(d.q); r.walk = d.w;
+    hostBroadcast({t:'pos', id, p:d.p, q:d.q, w:d.w}, id);
+  } else if(d.t === 'emo'){
+    const r = remotes.get(id); if(r) spawnEmoji(r.g, d.e);
+    hostBroadcast({t:'emo', id, e:d.e}, id);
+  } else if(d.t === 'fit'){
+    refitRemote(id, d.outfit);
+    hostBroadcast({t:'fit', id, outfit:d.outfit}, id);
+  }
+}
+function guestOnData(d){
+  if(d.t === 'world'){ for(const p of d.players){ const r = ensureRemote(p.id, p.name, p.outfit, p.p, p.q); if(r) r.outfit = p.outfit; } }
+  else if(d.t === 'join'){ const r = ensureRemote(d.id, d.name, d.outfit); if(r) r.outfit = d.outfit; toast(`${d.name} landed ✦`); }
+  else if(d.t === 'pos'){ const r = remotes.get(d.id); if(!r) return; r.tp.fromArray(d.p); r.tq.fromArray(d.q); r.walk = d.w; }
+  else if(d.t === 'emo'){ const r = remotes.get(d.id); if(r) spawnEmoji(r.g, d.e); }
+  else if(d.t === 'fit'){ refitRemote(d.id, d.outfit); }
+  else if(d.t === 'leave'){ removeRemote(d.id); }
+  else if(d.t === 'full'){ clearNet('That planet is full (10 couriers max).'); }
+}
+function refitRemote(id, outfit){
+  const r = remotes.get(id); if(!r) return;
+  const pos = r.g.position.clone(), q = r.g.quaternion.clone();
+  scene.remove(r.g);
+  r.g = makeCharacter(outfit || {});
+  const label = textSprite(r.name, {scale:.011, bg:'rgba(62,111,176,.92)', color:'#FBF3E2'});
+  label.position.y = 2.6; r.g.add(label);
+  r.g.position.copy(pos); r.g.quaternion.copy(q);
+  r.outfit = outfit;
+  scene.add(r.g);
+}
+function startHost(){
+  if(typeof Peer === 'undefined'){ mpStatus('Multiplayer library blocked here — download the file and open it directly.'); return; }
+  clearNet();
+  const code = randCode();
+  mpStatus('Opening your planet…');
+  const peer = new Peer('postling-'+code);
+  NET.peer = peer;
+  peer.on('open', ()=>{
+    NET.role = 'host'; NET.code = code;
+    mpStatus(`Hosting planet ${code} — share the code with friends!`);
+    refreshPlayersChip();
+  });
+  peer.on('connection', conn=>{
+    conn.on('data', d=>hostOnData(conn, d));
+    conn.on('close', ()=>{
+      if(NET.conns.has(conn.peer)){
+        NET.conns.delete(conn.peer);
+        hostBroadcast({t:'leave', id:conn.peer});
+        removeRemote(conn.peer);
+      }
+    });
+  });
+  peer.on('error', err=>{
+    if(err.type === 'unavailable-id') startHost(); // code collision — reroll
+    else clearNet('Network unavailable — playing solo.');
+  });
+}
+function joinRoom(codeRaw){
+  if(typeof Peer === 'undefined'){ mpStatus('Multiplayer library blocked here — download the file and open it directly.'); return; }
+  const code = (codeRaw||'').trim().toUpperCase();
+  if(code.length !== 4){ mpStatus('Enter the 4-letter code from your friend.'); return; }
+  clearNet();
+  mpStatus(`Looking for planet ${code}…`);
+  const peer = new Peer();
+  NET.peer = peer;
+  peer.on('open', ()=>{
+    const conn = peer.connect('postling-'+code, {reliable:true});
+    NET.hostConn = conn;
+    const failT = setTimeout(()=>{ if(NET.role!=='guest') clearNet('Could not find that planet.'); }, 9000);
+    conn.on('open', ()=>{
+      clearTimeout(failT);
+      NET.role = 'guest'; NET.code = code;
+      conn.send({t:'hi', name:NET.name, outfit:playerOutfit});
+      mpStatus(`Joined planet ${code}! You are “${NET.name}”.`);
+      refreshPlayersChip();
+    });
+    conn.on('data', guestOnData);
+    conn.on('close', ()=>{ if(NET.role==='guest') clearNet('Host left — back to solo.'); });
+  });
+  peer.on('error', ()=>clearNet('Could not find that planet.'));
+}
+function netSendPos(){
+  if(!netActive() || !player) return;
+  const msg = {t:'pos',
+    p:player.position.toArray().map(n=>+n.toFixed(2)),
+    q:player.quaternion.toArray().map(n=>+n.toFixed(3)),
+    w:(Math.abs(player.userData.legL.rotation.x) > .05) ? 1 : 0};
+  if(NET.role === 'host') hostBroadcast({...msg, id:'HOST'});
+  else if(NET.hostConn && NET.hostConn.open) NET.hostConn.send(msg);
+}
+function netEmote(e){
+  if(!netActive()) return;
+  if(NET.role === 'host') hostBroadcast({t:'emo', id:'HOST', e});
+  else if(NET.hostConn && NET.hostConn.open) NET.hostConn.send({t:'emo', e});
+}
+function netRefit(){
+  if(!netActive()) return;
+  if(NET.role === 'host') hostBroadcast({t:'fit', id:'HOST', outfit:playerOutfit});
+  else if(NET.hostConn && NET.hostConn.open) NET.hostConn.send({t:'fit', outfit:playerOutfit});
+}
+function updateRemotes(dt, t){
+  for(const r of remotes.values()){
+    r.g.position.lerp(r.tp, Math.min(1, 10*dt));
+    r.g.quaternion.slerp(r.tq, Math.min(1, 10*dt));
+    const u = r.g.userData, s = Math.sin(t*11)* (r.walk? .55 : 0);
+    u.legL.rotation.x += (s - u.legL.rotation.x)*.5;
+    u.legR.rotation.x += (-s - u.legR.rotation.x)*.5;
+    u.armL.rotation.x = -u.legL.rotation.x*.8;
+    u.armR.rotation.x = -u.legR.rotation.x*.8;
+  }
+}
+document.getElementById('hostBtn').addEventListener('click', e=>{ e.currentTarget.blur(); startHost(); });
+document.getElementById('joinBtn').addEventListener('click', e=>{ e.currentTarget.blur();
+  joinRoom(document.getElementById('roomInput').value); });
+document.getElementById('roomInput').addEventListener('keydown', e=>{
+  e.stopPropagation();
+  if(e.key === 'Enter') joinRoom(e.currentTarget.value);
+});
+
+/* ---------- movement / camera update ---------- */
+const tmpQ = new THREE.Quaternion(), tmpM = new THREE.Matrix4();
+let walkPhase = 0, playerWet = 0, curZone = null, stepT = 0;
+function updatePlayer(dt){
+  const pos = player.position;
+  const up = pos.clone().normalize();
+
+  // input vector (camera relative)
+  let ix = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0) + joy.x;
+  let iy = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0) + joy.y;
+  if(dlgOpen){ ix = iy = 0; }
+  let mag = Math.min(1, Math.hypot(ix, iy));
+
+  const camF = pos.clone().sub(camera.position);
+  camF.addScaledVector(up, -camF.dot(up)).normalize();
+  const camR = V().crossVectors(camF, up).normalize();
+  const moveDir = V().addScaledVector(camR, ix).addScaledVector(camF, iy);
+  if(moveDir.lengthSq() > 1e-6) moveDir.normalize();
+
+  const SPEED = 8.2;
+  if(mag > 0.01){
+    const prev = pos.clone();
+    const inWater = pos.clone().normalize().dot(OCEAN.dir) > OCEAN.cosWater;
+    pos.addScaledVector(moveDir, SPEED*(inWater? .55 : 1)*mag*dt);
+    pos.setLength(R);
+    if(pos.clone().normalize().dot(OCEAN.dir) > OCEAN.cosDeep){
+      pos.copy(prev); // too deep — the mail must stay dry
+      if(!updatePlayer._deepWarned){ toast('Too deep! The letters would get soggy.'); updatePlayer._deepWarned = true;
+        setTimeout(()=>updatePlayer._deepWarned=false, 4000); }
+    }
+    walkPhase += dt * 11 * mag;
+  } else {
+    walkPhase += (Math.round(walkPhase/Math.PI)*Math.PI - walkPhase) * Math.min(1, dt*10);
+  }
+
+  // wet clothes: soak in the water, slowly dry off on land
+  const wetNow = pos.clone().normalize().dot(OCEAN.dir) > OCEAN.cosWater;
+  if(wetNow && playerWet < .2) sfxSplash();
+  playerWet += ((wetNow?1:0) - playerWet) * Math.min(1, dt*(wetNow? 3 : .25));
+  for(const w of player.userData.wetMats)
+    w.m.color.copy(w.base).lerp(w.dark, playerWet*.8);
+  // footsteps
+  if(mag > 0.1){
+    stepT -= dt*mag;
+    if(stepT <= 0){ sfxStep(wetNow); stepT = .34; }
+  } else stepT = .1;
+
+  // orient: local +Z faces travel direction, local Y = up
+  const newUp = pos.clone().normalize();
+  let face;
+  if(mag > 0.01) face = moveDir;
+  else {
+    face = V(0,0,1).applyQuaternion(player.quaternion);
+    face.addScaledVector(newUp, -face.dot(newUp)).normalize();
+  }
+  const x = V().crossVectors(newUp, face).normalize();
+  tmpM.makeBasis(x, newUp, face);
+  tmpQ.setFromRotationMatrix(tmpM);
+  player.quaternion.rotateTowards(tmpQ, (mag>0.01 ? 9 : 20)*dt);
+
+  // walk cycle
+  const u = player.userData, s = Math.sin(walkPhase), amp = .55*mag;
+  u.legL.rotation.x =  s*amp; u.legR.rotation.x = -s*amp;
+  u.armL.rotation.x = -s*amp*.8; u.armR.rotation.x = s*amp*.8;
+  u.model.position.y = Math.abs(Math.sin(walkPhase))*.06*mag;
+
+  /* camera: lazy follow around the sphere */
+  let off = camera.position.clone().sub(pos);
+  let upComp = newUp.clone().multiplyScalar(off.dot(newUp));
+  let tang = off.clone().sub(upComp);
+  if(tang.lengthSq() < 1e-4) tang = V(0,0,1).applyQuaternion(player.quaternion).multiplyScalar(-1);
+  // manual orbit
+  if(Math.abs(camYawVel) > 1e-5){
+    tang.applyQuaternion(tmpQ.setFromAxisAngle(newUp, -camYawVel));
+    camYawVel *= Math.pow(.0001, dt);
+  }
+  // drift behind when moving
+  if(mag > 0.01){
+    const behind = moveDir.clone().multiplyScalar(-1);
+    const td = tang.clone().normalize().lerp(behind, 1-Math.pow(.55, dt)).normalize();
+    tang.copy(td).multiplyScalar(tang.length());
+  }
+  tang.setLength(10.5);
+  const desired = pos.clone().add(tang).addScaledVector(newUp, 6.2);
+  camera.position.lerp(desired, 1-Math.pow(.0008, dt));
+  camera.up.copy(newUp);
+  camera.lookAt(pos.clone().addScaledVector(newUp, 2.2));
+
+  /* arrow + beacon + hint */
+  const targetKey = currentTargetKey();
+  if(targetKey){
+    const tp = npcObjs[targetKey].position;
+    let dir = tp.clone().sub(pos);
+    dir.addScaledVector(newUp, -dir.dot(newUp));
+    arrow.visible = dir.lengthSq() > 4;
+    if(arrow.visible){
+      dir.normalize();
+      arrow.position.copy(pos).addScaledVector(newUp, 3.9);
+      const ax = V().crossVectors(newUp, dir).normalize();
+      tmpM.makeBasis(ax, newUp, dir);
+      arrow.quaternion.setFromRotationMatrix(tmpM);
+    }
+    beacon.visible = true;
+    surfaceOrient(beacon, tp.clone());
+    beacon.userData.env.position.y = 8.6 + Math.sin(performance.now()*.003)*.4;
+  }
+  const near = nearestThing();
+  const hint = document.getElementById('hint');
+  if(near && near.dist < 4.2 && !dlgOpen){
+    hint.style.display = 'block';
+    document.getElementById('hintChip').textContent =
+      (document.body.classList.contains('touch') ? 'Tap — ' : 'E — ')
+      + (near.kind==='extra' && near.it.secret && !near.it.found ? 'Inspect ' : 'Talk to ')
+      + near.name;
+  } else hint.style.display = 'none';
+
+  // zone announcements
+  const pd = pos.clone().normalize();
+  let zone = null, bestDot = -2;
+  for(const z of ZONES){
+    const d = pd.dot(z.dir);
+    if(d > z.cosR && d > bestDot){ bestDot = d; zone = z.name; }
+  }
+  if(zone !== curZone){
+    curZone = zone;
+    if(zone) toast(`— ${zone} —`);
+  }
+}
+
+function updateNPCs(dt, t){
+  for(const n of npcAnims){
+    n.g.userData.model.position.y = Math.abs(Math.sin(t*1.6 + n.phase))*.05;
+    const d = n.g.position.distanceTo(player.position);
+    if(d < 7){
+      const up = n.g.position.clone().normalize();
+      let face = player.position.clone().sub(n.g.position);
+      face.addScaledVector(up, -face.dot(up));
+      if(face.lengthSq() > .01){
+        face.normalize();
+        const x = V().crossVectors(up, face).normalize();
+        tmpM.makeBasis(x, up, face);
+        tmpQ.setFromRotationMatrix(tmpM);
+        n.g.quaternion.rotateTowards(tmpQ, 3.5*dt);
+      }
+    }
+    n.emoT -= dt;
+    if(n.emoT <= 0){
+      if(d < 26) spawnEmoji(n.g, ['💬','😊','🌼','👋','☕'][(Math.random()*5)|0]);
+      n.emoT = 12 + Math.random()*18;
+    }
+  }
+}
+
+function updateBots(dt, t){
+  for(const b of bots){
+    if(b.pause > 0){ b.pause -= dt;
+      const u = b.g.userData;
+      u.legL.rotation.x *= .9; u.legR.rotation.x *= .9;
+      u.armL.rotation.x *= .9; u.armR.rotation.x *= .9;
+    }
+    else {
+      b.walkT -= dt;
+      if(b.walkT <= 0){
+        if(Math.random() < .3){ b.pause = 1+Math.random()*2.5; b.walkT = .01; }
+        else { b.heading += (Math.random()-.5)*2.2; b.walkT = 2+Math.random()*4; }
+      }
+      const pos = b.g.position, up = pos.clone().normalize();
+      // heading as rotation of a reference tangent
+      let ref = V(0,0,1).applyQuaternion(b.g.quaternion);
+      ref.addScaledVector(up, -ref.dot(up)).normalize();
+      if(b.pause<=0 && b.walkT>0){
+        const turn = tmpQ.setFromAxisAngle(up, (Math.random()-.5)*dt*.8);
+        ref.applyQuaternion(turn);
+        const next = pos.clone().addScaledVector(ref, 3.4*dt).setLength(R);
+        if(next.clone().normalize().dot(OCEAN.dir) > OCEAN.cosWater){
+          b.heading += Math.PI;           // no swimming on duty
+          ref.multiplyScalar(-1);
+          next.copy(pos).addScaledVector(ref, 3.4*dt).setLength(R);
+        }
+        pos.copy(next);
+        const nu = pos.clone().normalize();
+        ref.addScaledVector(nu, -ref.dot(nu)).normalize();
+        const x = V().crossVectors(nu, ref).normalize();
+        tmpM.makeBasis(x, nu, ref);
+        b.g.quaternion.setFromRotationMatrix(tmpM);
+        const s = Math.sin(t*10 + b.phase), u = b.g.userData;
+        u.legL.rotation.x = s*.5; u.legR.rotation.x = -s*.5;
+        u.armL.rotation.x = -s*.4; u.armR.rotation.x = s*.4;
+      } else {
+        const u = b.g.userData;
+        u.legL.rotation.x *= .9; u.legR.rotation.x *= .9;
+      }
+    }
+    b.emoT -= dt;
+    if(b.emoT <= 0){
+      spawnEmoji(b.g, ['👋','🎵','✨','❤️','☀️'][(Math.random()*5)|0]);
+      b.emoT = 8 + Math.random()*14;
+    }
+  }
+}
+
+/* ---------- main loop ---------- */
+const clock = new THREE.Clock();
+function loop(){
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), .05);
+  const t = clock.elapsedTime;
+  if(running){
+    updatePlayer(dt);
+    updateNPCs(dt, t);
+    if(!netActive()) updateBots(dt, t);
+    NET.sendT -= dt;
+    if(NET.sendT <= 0){ netSendPos(); NET.sendT = .1; }
+  }
+  updateRemotes(dt, t);
+  for(const b of birds){
+    b.rotation.y += b.userData.spd*dt;
+    const f = Math.sin(t*13 + b.userData.ph)*.65;
+    b.userData.wL.rotation.z = f; b.userData.wR.rotation.z = -f;
+  }
+  for(const c of clouds) c.rotation.y += c.userData.spin*dt*10;
+  moon.position.set(Math.cos(t*.05)*90, 40+Math.sin(t*.03)*10, Math.sin(t*.05)*90);
+  moon.rotation.y = t*.2;
+  if(oceanMat) oceanMat.uniforms.time.value = t;
+  if(flameMesh){ const f = 1 + Math.sin(t*13)*.12 + Math.sin(t*29)*.06;
+    flameMesh.scale.set(1, f, 1); }
+  if(fountainBits){
+    fountainBits.blob.position.y = 1.55 + Math.sin(t*3.2)*.14;
+    fountainBits.blob.scale.setScalar(1 + Math.sin(t*6.5)*.12);
+  }
+  for(const s of smokes){
+    s.t += dt*.16;
+    if(s.t > 1) s.t -= 1;
+    s.m.position.copy(s.base).addScaledVector(s.up, s.t*4.5);
+    const sc = .35 + s.t*1.1;
+    s.m.scale.setScalar(sc);
+    s.m.material.opacity = .5 * Math.sin(Math.PI*s.t);
+  }
+  updateSpatialAudio();
+  for(let i=bubbles.length-1;i>=0;i--){
+    const b = bubbles[i];
+    b.userData.t += dt;
+    b.position.addScaledVector(b.userData.up, dt*1.2);
+    b.material.opacity = Math.max(0, 1 - b.userData.t/1.8);
+    if(b.userData.t > 1.8){ scene.remove(b); bubbles.splice(i,1); }
+  }
+  renderer.render(scene, camera);
+}
+
+/* ---------- staged loading with real work per step ---------- */
+const STEPS = [
+  ['Shaping the planet…', buildPlanet],
+  ['Planting the forest…', buildProps],
+  ['Filling the ocean…', buildZones],
+  ['Waking the neighbors…', buildNPCs],
+  ['Packing the mail bag…', ()=>{ buildPlayer(); buildBots(); }],
+  ['Tuning the radio…', ()=>{}],
+];
+let stepI = 0;
+function runStep(){
+  const pct = Math.round(stepI/STEPS.length*100);
+  document.getElementById('loadPct').textContent = pct+'%';
+  document.getElementById('meterFill').style.width = pct+'%';
+  if(stepI < STEPS.length){
+    const [label, fn] = STEPS[stepI];
+    document.getElementById('loadStep').textContent = label;
+    setTimeout(()=>{ fn(); stepI++; runStep(); }, 380);
+  } else {
+    document.getElementById('loadPct').textContent = '100%';
+    document.getElementById('meterFill').style.width = '100%';
+    document.getElementById('loadStep').textContent = 'Route ready.';
+    renderer.render(scene, camera);
+    setTimeout(()=>{
+      document.getElementById('loader').classList.add('done');
+      const title = document.getElementById('title');
+      title.classList.add('show');
+    }, 500);
+  }
+}
+document.getElementById('outfitBtn').addEventListener('click', e=>{
+  e.currentTarget.blur();
+  rebuildPlayerOutfit();
+  toast('New outfit ✂');
+});
+document.getElementById('startBtn').addEventListener('click', e=>{
+  e.currentTarget.blur();
+  const title = document.getElementById('title');
+  title.classList.add('hide');
+  setTimeout(()=>title.classList.remove('show'), 900);
+  document.getElementById('hud').classList.add('show');
+  running = true;
+  setMusic(true);
+  document.getElementById('objective').textContent = 'Find Pip at the post office.';
+  toast('Follow the ✉ beacon');
+});
+
+loop();
+runStep();
+</script>
+</body>
+</html>
