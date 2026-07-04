@@ -1511,9 +1511,16 @@ function startHost(){
       }
     });
   });
+  peer.on('disconnected', ()=>{ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } });
   peer.on('error', err=>{
-    if(err.type === 'unavailable-id') startHost(); // code collision — reroll
-    else clearNet('Network unavailable — playing solo.');
+    const t = err && err.type;
+    if(t === 'unavailable-id'){ startHost(); return; } // code collision — reroll
+    // per-link hiccups (voice-call negotiation, a guest that already left):
+    // never tear the whole session down for these
+    if(t === 'webrtc' || t === 'peer-unavailable') return;
+    // signaling socket lost — live P2P connections survive, just get the socket back
+    if(t === 'network'){ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } return; }
+    clearNet('Network unavailable — playing solo.');
   });
 }
 function joinRoom(codeRaw){
@@ -1539,7 +1546,17 @@ function joinRoom(codeRaw){
     conn.on('data', guestOnData);
     conn.on('close', ()=>{ if(NET.role==='guest') clearNet('Host left — back to solo.'); });
   });
-  peer.on('error', ()=>clearNet('Could not find that planet.'));
+  peer.on('disconnected', ()=>{ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } });
+  peer.on('error', err=>{
+    const t = err && err.type;
+    if(t === 'peer-unavailable'){ // host id not registered — only fatal while still joining
+      if(NET.role !== 'guest') clearNet('Could not find that planet.');
+      return;
+    }
+    if(t === 'webrtc') return; // per-link negotiation hiccup (voice call etc.) — keep playing
+    if(t === 'network'){ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } return; }
+    clearNet(NET.role === 'guest' ? 'Connection lost — back to solo.' : 'Could not find that planet.');
+  });
 }
 function netSendPos(){
   if(!netActive() || !player) return;
@@ -1745,7 +1762,7 @@ function attachVoice(key, stream){
 addEventListener('pointerdown', ()=>{
   while(voice.pending.length){ const el = voice.pending.pop(); el.play().catch(()=>{}); }
 }, {capture:true});
-function callPeerVoice(key){
+function callPeerVoice(key, attempt = 0){
   if(!voice.stream || !NET.peer || voice.called.has(key)) return;
   try{
     const call = NET.peer.call(peerIdOf(key), voice.stream);
@@ -1753,12 +1770,18 @@ function callPeerVoice(key){
     voice.called.add(key);
     call.on('stream', s=>attachVoice(key, s));
     call.on('close', ()=>voice.called.delete(key));
+    call.on('error', ()=>{ // negotiation hiccup — retry a couple of times, then give up quietly
+      voice.called.delete(key);
+      if(attempt < 2 && voice.stream && remotes.has(key))
+        setTimeout(()=>callPeerVoice(key, attempt+1), 1200);
+    });
   }catch(e){}
 }
 function hookIncomingCalls(peer){
   peer.on('call', call=>{
-    call.answer(voice.stream || undefined);
+    call.on('error', ()=>{}); // a failed call must never escalate
     call.on('stream', s=>attachVoice(keyOfPeer(call.peer), s));
+    try{ call.answer(voice.stream || undefined); }catch(e){}
   });
 }
 async function toggleMic(){
@@ -2127,4 +2150,4 @@ loop();
 runStep();
 </script>
 </body>
-</html>
+</html>`
