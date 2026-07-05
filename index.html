@@ -1937,6 +1937,20 @@ const remotes = new Map(); // id -> {g, tp, tq, walk, name}
 const MAX_PLAYERS = 10;    // same cap as the original — calm over crowds
 
 const mpStatus = m => { const el = document.getElementById('mpStatus'); if(el) el.textContent = m; };
+/* Extra STUN/TURN routes so far-apart friends can still find a path.
+   PeerJS's own TURN + the Open Relay community TURN (port 443/tcp variants
+   punch through strict NATs & firewalls; dead entries are simply ignored). */
+const PEER_OPTS = {
+  config: { iceServers: [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
+      username: 'peerjs', credential: 'peerjsp' },
+    { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443',
+             'turn:openrelay.metered.ca:443?transport=tcp'],
+      username: 'openrelayproject', credential: 'openrelayproject' },
+  ], sdpSemantics: 'unified-plan' },
+};
 function randCode(){
   const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s='';
   for(let i=0;i<4;i++) s += A[(Math.random()*A.length)|0];
@@ -2045,12 +2059,17 @@ function startHost(){
   clearNet();
   const code = randCode();
   mpStatus('Opening your planet…');
-  const peer = new Peer('postling-'+code);
+  const peer = new Peer('postling-'+code, PEER_OPTS);
   NET.peer = peer;
   hookIncomingCalls(peer);
+  const bootT = setTimeout(()=>{ // broker never answered — some networks block it silently
+    if(NET.peer === peer && NET.role !== 'host')
+      clearNet("Can't reach the matchmaking server — your network may block it. Try mobile data or another Wi-Fi.");
+  }, 10000);
   peer.on('open', ()=>{
+    clearTimeout(bootT);
     NET.role = 'host'; NET.code = code;
-    mpStatus(`Hosting planet ${code} — share the code with friends!`);
+    mpStatus(`Hosting planet ${code} — share the code! Keep this tab open; the code lives and dies with it.`);
     refreshPlayersChip();
   });
   peer.on('connection', conn=>{
@@ -2080,16 +2099,30 @@ function joinRoom(codeRaw){
   const code = (codeRaw||'').trim().toUpperCase();
   if(code.length !== 4){ mpStatus('Enter the 4-letter code from your friend.'); return; }
   clearNet();
-  mpStatus(`Looking for planet ${code}…`);
-  const peer = new Peer();
+  mpStatus('Contacting the post office…');
+  const peer = new Peer(PEER_OPTS);
   NET.peer = peer;
   hookIncomingCalls(peer);
+  const bootT = setTimeout(()=>{ // broker never answered — some networks block it silently
+    if(NET.peer === peer && NET.role !== 'guest')
+      clearNet("Can't reach the matchmaking server — your network may block it. Try mobile data or another Wi-Fi.");
+  }, 10000);
   peer.on('open', ()=>{
+    clearTimeout(bootT);
+    mpStatus(`Looking for planet ${code}…`);
     const conn = peer.connect('postling-'+code, {reliable:true});
     NET.hostConn = conn;
-    const failT = setTimeout(()=>{ if(NET.role!=='guest') clearNet('Could not find that planet.'); }, 9000);
+    // long-distance links (relayed through TURN) can genuinely take 15-25s to open
+    const slowT = setTimeout(()=>{
+      if(NET.role !== 'guest' && NET.peer === peer)
+        mpStatus(`Found the route to ${code} — connecting… far-apart planets can take ~20s.`);
+    }, 6000);
+    const failT = setTimeout(()=>{
+      if(NET.role !== 'guest' && NET.peer === peer)
+        clearNet("Couldn't connect — a firewall is blocking the player-to-player link. Try again, or switch one of you to mobile-data hotspot.");
+    }, 30000);
     conn.on('open', ()=>{
-      clearTimeout(failT);
+      clearTimeout(failT); clearTimeout(slowT);
       NET.role = 'guest'; NET.code = code;
       conn.send({t:'hi', name:NET.name, outfit:playerOutfit});
       mpStatus(`Joined planet ${code}! You are “${NET.name}”.`);
@@ -2101,8 +2134,9 @@ function joinRoom(codeRaw){
   peer.on('disconnected', ()=>{ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } });
   peer.on('error', err=>{
     const t = err && err.type;
-    if(t === 'peer-unavailable'){ // host id not registered — only fatal while still joining
-      if(NET.role !== 'guest') clearNet('Could not find that planet.');
+    if(t === 'peer-unavailable'){ // that code isn't registered — only fatal while still joining
+      if(NET.role !== 'guest')
+        clearNet("That planet isn't hosting right now — codes die when the host closes their tab. Check the 4 letters and ask them to re-host.");
       return;
     }
     if(t === 'webrtc') return; // per-link negotiation hiccup (voice call etc.) — keep playing
