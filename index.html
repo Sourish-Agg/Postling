@@ -84,6 +84,7 @@
     padding:9px 16px;font-weight:600;font-size:15px}
   #questChip{position:absolute;top:14px;left:14px}
   #questChip .env{font-size:18px}
+  #playersChip{cursor:pointer}
   #topRight{position:absolute;top:14px;right:14px;display:flex;gap:9px}
   .iconBtn{pointer-events:auto;width:44px;height:44px;border-radius:50%;background:var(--card);
     border:2.5px solid var(--ink);box-shadow:0 3px 0 var(--ink);font-size:19px;
@@ -125,6 +126,10 @@
   #dlgText{font-size:16.5px;line-height:1.45;min-height:48px}
   #dlgMore{text-align:right;font-size:12px;opacity:.6;margin-top:6px}
 
+  /* soft cinematic vignette over the 3D view */
+  #vignette{position:fixed;inset:0;z-index:5;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 42%, transparent 60%, rgba(24,18,34,.28) 100%)}
+
   /* ---------- TOAST & END ---------- */
   #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-8px);z-index:58;
     background:var(--ink);color:var(--card);border-radius:99px;padding:10px 22px;font-weight:600;
@@ -148,6 +153,7 @@
 </style>
 </head>
 <body>
+<div id="vignette"></div>
 
 <!-- LOADER -->
 <div id="loader">
@@ -168,6 +174,9 @@
   <button id="startBtn">Start the round ✉</button>
   <button id="outfitBtn" style="font-family:'Baloo 2';font-weight:800;font-size:15px;background:var(--card);
     border:2.5px solid var(--ink);border-radius:99px;padding:8px 22px;box-shadow:0 3px 0 var(--ink)">🎲 New outfit</button>
+  <button id="resetBtn" style="font-family:'Baloo 2';font-weight:800;font-size:13px;background:var(--card);
+    border:2.5px solid var(--ink);border-radius:99px;padding:6px 18px;box-shadow:0 3px 0 var(--ink);
+    opacity:.8;display:none">↺ Start over</button>
   <div id="mpPanel">
     <button class="mpBtn" id="hostBtn">🌍 Host a planet</button>
     <input id="roomInput" maxlength="4" placeholder="CODE" autocomplete="off">
@@ -232,6 +241,8 @@ const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 addEventListener('resize', () => {
@@ -254,11 +265,36 @@ function outline(mesh, s=1.045){
   return mesh;
 }
 
-/* ---------- lights & sky ---------- */
-scene.add(new THREE.HemisphereLight(0xFFEBD0, 0x6E8F63, 0.85));
+/* ---------- lights & sky (with a slow day/night cycle) ---------- */
+const hemi = new THREE.HemisphereLight(0xFFEBD0, 0x6E8F63, 0.85);
+scene.add(hemi);
+// the sun is a real, moving shadow caster: its direction follows the day cycle
+// and its tight ortho shadow frustum is re-centered on the player every frame
 const sun = new THREE.DirectionalLight(0xFFF2DC, 0.9);
 sun.position.set(60, 90, 40);
-scene.add(sun);
+sun.castShadow = true;
+sun.shadow.mapSize.setScalar(('ontouchstart' in window) ? 1024 : 2048);
+sun.shadow.camera.left = sun.shadow.camera.bottom = -22;
+sun.shadow.camera.right = sun.shadow.camera.top = 22;
+sun.shadow.camera.near = 10; sun.shadow.camera.far = 160;
+sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.6;
+scene.add(sun, sun.target);
+// faint blue counter-light so night isn't pitch flat
+const moonLight = new THREE.DirectionalLight(0x9BB4FF, 0);
+scene.add(moonLight);
+const DAY_LEN = 480; // seconds for a full day
+let dayB = 1;        // 1 = noon, 0 = midnight (read by ambience updates)
+const SKY_DAY_TOP = new THREE.Color(0x8FB9E8), SKY_DAY_BOT = new THREE.Color(0xFFD9A8),
+      SKY_NIGHT_TOP = new THREE.Color(0x1B2547), SKY_NIGHT_BOT = new THREE.Color(0x3A2E5E),
+      SKY_DUSK_TOP = new THREE.Color(0x8577B8), SKY_DUSK_BOT = new THREE.Color(0xFF9E6B),
+      C_DEEP = new THREE.Color(0x3E86B8), C_SHALLOW = new THREE.Color(0x8FD4DE),
+      C_FOAM = new THREE.Color(0xFFFFFF), C_SAND = new THREE.Color(0xEFD9A0),
+      SUN_DAY = new THREE.Color(0xFFF2DC), SUN_DUSK = new THREE.Color(0xFF9E5E),
+      FOG_DAY = new THREE.Color(0xC3D8E8), FOG_DUSK = new THREE.Color(0xE0A47E),
+      FOG_NIGHT = new THREE.Color(0x252C4C);
+// gentle aerial perspective — terrain melts into the horizon like the original
+scene.fog = new THREE.FogExp2(0xC3D8E8, 0.0072);
+let starMat = null; // created with the clouds in buildProps
 
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite:false,
@@ -273,7 +309,7 @@ scene.add(new THREE.Mesh(new THREE.SphereGeometry(700, 24, 16), skyMat));
 
 // sun disc + tiny far moon
 const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(14, 16, 12),
-  new THREE.MeshBasicMaterial({color:0xFFF6D8}));
+  new THREE.MeshBasicMaterial({color:0xFFF6D8, fog:false}));
 sunDisc.position.set(260, 380, 170); scene.add(sunDisc);
 const moon = new THREE.Group();
 const moonBody = outline(new THREE.Mesh(new THREE.SphereGeometry(4.2,14,10), toon(0xEAD9F4)));
@@ -547,12 +583,23 @@ function buildProps(){
     clouds.push(holder);
     scene.add(holder);
   }
+  // stars — invisible by day, fading in at night
+  const starN = 420, sp = new Float32Array(starN*3);
+  for(let i=0;i<starN;i++){
+    const d = randDir().multiplyScalar(620);
+    sp[i*3] = d.x; sp[i*3+1] = d.y; sp[i*3+2] = d.z;
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  starMat = new THREE.PointsMaterial({color:0xFFF6D8, size:2.2, sizeAttenuation:false,
+    transparent:true, opacity:0, depthWrite:false, fog:false});
+  scene.add(new THREE.Points(starGeo, starMat));
 }
 const clouds = [];
 
 /* ---------- the seven zones + dynamic water + secrets ---------- */
-let oceanMat, smokes = [], fountainBits = null, flameMesh = null;
-let rhoObj = null, factoryPos = null, ball = null;
+let oceanMat, sandMat = null, smokes = [], fountainBits = null, flameMesh = null;
+let rhoObj = null, factoryPos = null, ball = null, campfirePos = null;
 const BENCHES = [];
 const ballState = {pos:null, vel:new THREE.Vector3()};
 const EXTRAS = []; // interactable non-quest things
@@ -597,6 +644,8 @@ function makeGrave(){
 }
 function buildZones(){
   /* --- OCEAN & BEACH: cap-masked sphere shells with an animated shore shader --- */
+  // ShaderMaterials don't react to scene.fog, so both shells fog themselves
+  // via a view-depth varying + fogC/fogD uniforms updated in the main loop
   const capShell = (r, frag, transparent)=> new THREE.Mesh(
     new THREE.SphereGeometry(r, 96, 64),
     new THREE.ShaderMaterial({
@@ -604,23 +653,33 @@ function buildZones(){
       uniforms:{ time:{value:0}, cdir:{value:OCEAN.dir},
         edge:{value:0}, deep:{value:new THREE.Color(0x3E86B8)},
         shallow:{value:new THREE.Color(0x8FD4DE)}, foamC:{value:new THREE.Color(0xFFFFFF)},
-        sandC:{value:new THREE.Color(0xEFD9A0)} },
-      vertexShader:`varying vec3 vD; void main(){ vD = normalize(position);
-        gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+        sandC:{value:new THREE.Color(0xEFD9A0)},
+        fogC:{value:new THREE.Color(0xC3D8E8)}, fogD:{value:0.0072} },
+      vertexShader:`varying vec3 vD; varying float vFogZ; void main(){ vD = normalize(position);
+        vec4 mv = modelViewMatrix*vec4(position,1.);
+        vFogZ = -mv.z;
+        gl_Position = projectionMatrix*mv;}`,
       fragmentShader: frag }));
+  const FOG_GLSL = `
+    varying float vFogZ; uniform vec3 fogC; uniform float fogD;
+    vec3 applyFog(vec3 c){
+      float f = 1.0 - exp(-vFogZ*vFogZ*fogD*fogD);
+      return mix(c, fogC, clamp(f, 0.0, 1.0));
+    }`;
   // sand ring
-  const sand = capShell(R+0.04, `
+  const sand = capShell(R+0.04, FOG_GLSL+`
     varying vec3 vD; uniform vec3 cdir; uniform float edge; uniform vec3 sandC;
     void main(){
       float d = dot(vD, cdir);
       if(d < edge) discard;
       float t = (d-edge)/(1.0-edge);
-      gl_FragColor = vec4(mix(sandC*0.94, sandC, smoothstep(0.0,0.3,t)), 1.0);
+      gl_FragColor = vec4(applyFog(mix(sandC*0.94, sandC, smoothstep(0.0,0.3,t))), 1.0);
     }`, false);
   sand.material.uniforms.edge.value = OCEAN.cosSand;
+  sandMat = sand.material;
   planet.add(sand);
   // water with moving foam bands + ripples (homage to *the* beach shader)
-  const water = capShell(R+0.09, `
+  const water = capShell(R+0.09, FOG_GLSL+`
     varying vec3 vD; uniform vec3 cdir; uniform float edge; uniform float time;
     uniform vec3 deep, shallow, foamC;
     void main(){
@@ -637,7 +696,7 @@ function buildZones(){
       float foam = clamp(shoreFoam + band*0.75, 0.0, 1.0);
       col = mix(col, foamC, foam);
       float alpha = mix(0.55, 0.94, smoothstep(0.0, 0.35, t));
-      gl_FragColor = vec4(col, max(alpha, foam));
+      gl_FragColor = vec4(applyFog(col), max(alpha, foam));
     }`, true);
   water.material.uniforms.edge.value = OCEAN.cosWater;
   oceanMat = water.material;
@@ -1029,9 +1088,9 @@ function launchFirework(who){
   fireworks.push({kind:'rocket', m:rocket, up, t:0});
   sfxBlip(240);
 }
-function burstFirework(pos, up){
+function burstFirework(pos, up, count = 22, quiet = false){
   const cols = [0xF2735E, 0xF4C25E, 0x8FB9E8, 0xE98BB5, 0xFFF9EC];
-  for(let i=0;i<22;i++){
+  for(let i=0;i<count;i++){
     const m = new THREE.Mesh(new THREE.SphereGeometry(.09,6,5),
       new THREE.MeshBasicMaterial({color:cols[(Math.random()*cols.length)|0], transparent:true, opacity:1}));
     m.position.copy(pos);
@@ -1039,7 +1098,7 @@ function burstFirework(pos, up){
     fireworks.push({kind:'spark', m, v, up, t:0});
     scene.add(m);
   }
-  sfxPop();
+  if(!quiet) sfxPop();
 }
 function buildDetails(){
   const plazaDir = ZONES[1].dir, tDir = ZONES[2].dir, fDir = ZONES[4].dir,
@@ -1121,6 +1180,7 @@ function buildDetails(){
 
   /* --- forest: campfire circle (sittable logs), fireflies, a fairy ring --- */
   const campP = capEdgePoint(woDir, 7, 1.5);
+  campfirePos = campP.clone();
   const fire = new THREE.Group();
   for(let i=0;i<6;i++){
     const st = new THREE.Mesh(new THREE.DodecahedronGeometry(.14,0), toon(PALETTE.rock));
@@ -1273,7 +1333,8 @@ function updateDetails(dt, t){
   for(const f of fireflies){
     const d = f.base.clone().applyAxisAngle(V(0,1,0), Math.sin(t*.22+f.off)*.06);
     f.m.position.copy(d.normalize().multiplyScalar(R + 1 + Math.sin(t*.7+f.ph)*.55));
-    f.m.material.opacity = .35 + .55*Math.abs(Math.sin(t*1.7+f.ph));
+    f.m.material.opacity = (.35 + .55*Math.abs(Math.sin(t*1.7+f.ph))) *
+      Math.min(1, .45 + .95*(1-dayB)); // they come alive after dark
   }
   for(const b of butterflies){
     const a = t*.5 + b.ph;
@@ -1330,6 +1391,18 @@ function updateDetails(dt, t){
   }
 }
 
+/* ---------- shadow pass ---------- */
+// opaque toon meshes cast & receive; outlines (BasicMaterial), sprites, glow
+// bulbs, cloud puffs (transparent) and the shader shells all stay excluded
+function enableShadows(root){
+  root.traverse(o=>{
+    if(o.isMesh && o.material && o.material.isMeshToonMaterial && !o.material.transparent){
+      o.castShadow = true;
+      o.receiveShadow = true;
+    }
+  });
+}
+
 /* ---------- characters ---------- */
 function makeCharacter({jacket=0xF2735E, cap=0x3E6FB0, skin=0xF6C9A0, bag=true, capOn=true, pants=0x445066}={}){
   const g = new THREE.Group();          // root sits on the surface
@@ -1369,11 +1442,12 @@ function makeCharacter({jacket=0xF2735E, cap=0x3E6FB0, skin=0xF6C9A0, bag=true, 
     strap.position.set(-.3,1.2,0); strap.rotation.z = .6;
     model.add(b, strap);
   }
-  // blob shadow
+  // real shadows do the daytime work; a faint blob keeps feet grounded at night
   const sh = new THREE.Mesh(new THREE.CircleGeometry(.55, 20),
-    new THREE.MeshBasicMaterial({color:0x33291F, transparent:true, opacity:.22}));
+    new THREE.MeshBasicMaterial({color:0x33291F, transparent:true, opacity:.12}));
   sh.rotation.x = -Math.PI/2; sh.position.y = .04;
   g.add(sh);
+  enableShadows(g);
   g.userData = {model, legL, legR, armL, armR,
     wetMats: [legL.material, body.material, armL.material].map(m =>
       ({m, base: m.color.clone(), dark: m.color.clone().multiplyScalar(.5)}))};
@@ -1504,10 +1578,11 @@ function rebuildPlayerOutfit(){
   player.position.copy(pos); player.quaternion.copy(q);
   scene.add(player);
   netRefit();
+  saveGame();
   renderer.render(scene, camera);
 }
 function buildPlayer(){
-  playerOutfit = randomOutfit();
+  playerOutfit = (SAVED && SAVED.outfit) ? SAVED.outfit : randomOutfit();
   player = makeCharacter(playerOutfit);
   const startP = latLon(10, -14);
   surfaceOrient(player, startP, 2.4);
@@ -1652,19 +1727,66 @@ const dlgText = document.getElementById('dlgText');
 let dlgOpen = false, dlgLines = [], dlgIdx = 0, dlgAfter = null;
 let stage = 0, delivered = 0, running = false, finished = false;
 
+/* ---------- save & continue (localStorage) ---------- */
+const SAVE_KEY = 'postling-save-1';
+let SAVED = null;
+try{ SAVED = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); }catch(e){}
+function saveGame(){
+  try{ localStorage.setItem(SAVE_KEY, JSON.stringify({
+    stage, delivered, finished, music: musicOn, outfit: playerOutfit,
+    secrets: EXTRAS.filter(x=>x.secret && x.found).map(x=>x.name),
+  })); }catch(e){}
+}
+function applySave(){ // runs once world + player exist
+  if(!SAVED) return;
+  if(typeof SAVED.stage === 'number' && SAVED.stage > 0 && SAVED.stage <= CHAIN.length){
+    stage = Math.min(SAVED.stage, CHAIN.length);
+    delivered = SAVED.delivered || 0;
+    finished = !!SAVED.finished || stage >= CHAIN.length;
+    document.getElementById('questCount').textContent = `Deliveries ${delivered} / 8`;
+    document.getElementById('objective').textContent =
+      finished ? CHAIN[CHAIN.length-1].objective : CHAIN[stage-1].objective;
+    if(finished){ beacon.visible = arrow.visible = false; }
+  }
+  const found = SAVED.secrets || [];
+  for(const x of EXTRAS) if(x.secret && found.includes(x.name)){ x.found = true; secretsFound++; }
+  if(secretsFound > 0){
+    document.getElementById('secretChip').style.display = 'flex';
+    document.getElementById('secretCount').textContent = `Secrets ${secretsFound} / ${SECRET_TOTAL}`;
+  }
+}
+
+let dlgFull = '', dlgTick = null;
+function typeLine(line){ // typewriter reveal; tapping skips to the full line
+  dlgFull = line;
+  clearInterval(dlgTick);
+  dlgText.textContent = '';
+  let i = 0;
+  dlgTick = setInterval(()=>{
+    i += 2;
+    dlgText.textContent = dlgFull.slice(0, i);
+    if(i >= dlgFull.length) clearInterval(dlgTick);
+  }, 24);
+}
 function openDialogue(name, lines, after){
   dlgOpen = true; dlgLines = lines; dlgIdx = 0; dlgAfter = after || null;
   dlgName.textContent = name;
-  dlgText.textContent = lines[0];
+  typeLine(lines[0]);
   dlg.classList.add('show');
   sfxBlip(520);
 }
 function advanceDialogue(){
+  if(dlgText.textContent.length < dlgFull.length){ // still typing — finish the line
+    clearInterval(dlgTick);
+    dlgText.textContent = dlgFull;
+    return;
+  }
   dlgIdx++;
   if(dlgIdx < dlgLines.length){
-    dlgText.textContent = dlgLines[dlgIdx];
+    typeLine(dlgLines[dlgIdx]);
     sfxBlip(480);
   } else {
+    clearInterval(dlgTick);
     dlg.classList.remove('show'); dlgOpen = false;
     if(dlgAfter) dlgAfter();
   }
@@ -1693,6 +1815,7 @@ function foundSecret(it){
   sfxChime();
   toast(secretsFound===SECRET_TOTAL ? 'All secrets found ✦✦✦' : 'Secret found ✦');
   if(it.hoot) sfxHoot();
+  saveGame();
 }
 function tryInteract(){
   if(!running || dlgOpen) return;
@@ -1716,7 +1839,10 @@ function talkToNPC(key, def){
     const step = CHAIN[stage];
     openDialogue(def.name, step.lines, ()=>{
       if(step.deliver){ delivered++; sfxChime();
-        toast(`Letter ${delivered} of 8 delivered ✉`); }
+        toast(`Letter ${delivered} of 8 delivered ✉`);
+        const up = player.position.clone().normalize();
+        burstFirework(player.position.clone().addScaledVector(up, 2.8), up, 12, true);
+      }
       document.getElementById('questCount').textContent = `Deliveries ${delivered} / 8`;
       stage++;
       if(stage >= CHAIN.length){
@@ -1727,6 +1853,7 @@ function talkToNPC(key, def){
       } else {
         document.getElementById('objective').textContent = CHAIN[stage-1].objective;
       }
+      saveGame();
     });
   } else {
     openDialogue(def.name, [IDLE[key]]);
@@ -1806,6 +1933,7 @@ function setMusic(on){
     masterG.gain.cancelScheduledValues(AC.currentTime);
     masterG.gain.linearRampToValueAtTime(0, AC.currentTime+.6);
   }
+  if(playerOutfit) saveGame(); // remember the music preference
 }
 document.getElementById('soundBtn').addEventListener('click', ()=>setMusic(!musicOn));
 function sfxBlip(f){
@@ -1886,7 +2014,7 @@ function sfxPop(){
   o.connect(og).connect(masterG); o.start(now); o.stop(now+.5);
 }
 /* --- positional sound: Rho's guitar and the factory hum grow as you approach --- */
-let guitarGain=null, guitarPan=null, humGain=null;
+let guitarGain=null, guitarPan=null, humGain=null, waveGain=null, crackGain=null;
 const GUITAR_SEQ = [220, 261.63, 329.63, 440, 329.63, 261.63, 293.66, 261.63];
 let gStep = 0;
 function initSpatialAudio(){
@@ -1908,6 +2036,32 @@ function initSpatialAudio(){
   const hf = AC.createBiquadFilter(); hf.type='lowpass'; hf.frequency.value=130;
   humGain = AC.createGain(); humGain.gain.value = 0;
   hum.connect(hf).connect(humGain).connect(masterG); hum.start();
+  // ocean waves: looped noise with a slow swell, louder near the shore
+  const wlen = AC.sampleRate*3, wbuf = AC.createBuffer(1, wlen, AC.sampleRate);
+  const wd = wbuf.getChannelData(0);
+  for(let i=0;i<wlen;i++) wd[i] = Math.random()*2-1;
+  const wsrc = AC.createBufferSource(); wsrc.buffer = wbuf; wsrc.loop = true;
+  const wf2 = AC.createBiquadFilter(); wf2.type='lowpass'; wf2.frequency.value = 420;
+  const swell = AC.createGain(); swell.gain.value = .65;
+  const lfo = AC.createOscillator(); lfo.frequency.value = .13;
+  const lfoG = AC.createGain(); lfoG.gain.value = .35;
+  lfo.connect(lfoG).connect(swell.gain);
+  waveGain = AC.createGain(); waveGain.gain.value = 0;
+  wsrc.connect(wf2).connect(swell).connect(waveGain).connect(masterG);
+  wsrc.start(); lfo.start();
+  // campfire crackle: sparse decaying pops, audible only close by
+  const clen = AC.sampleRate*2, cbuf = AC.createBuffer(1, clen, AC.sampleRate);
+  const cd = cbuf.getChannelData(0);
+  let cv = 0;
+  for(let i=0;i<clen;i++){
+    if(Math.random() < .0009) cv = (Math.random()*2-1)*1.2;
+    else cv *= .94;
+    cd[i] = cv + (Math.random()*2-1)*.015;
+  }
+  const csrc = AC.createBufferSource(); csrc.buffer = cbuf; csrc.loop = true;
+  const cf = AC.createBiquadFilter(); cf.type='bandpass'; cf.frequency.value = 1700; cf.Q.value = .5;
+  crackGain = AC.createGain(); crackGain.gain.value = 0;
+  csrc.connect(cf).connect(crackGain).connect(masterG); csrc.start();
 }
 function updateSpatialAudio(){
   if(!AC || !guitarGain || !player) return;
@@ -1926,31 +2080,113 @@ function updateSpatialAudio(){
     const d = player.position.distanceTo(factoryPos);
     humGain.gain.setTargetAtTime(Math.max(0, 1 - d/20)*.1, AC.currentTime, .3);
   }
+  if(waveGain && OCEAN){
+    const sd = player.position.clone().normalize().dot(OCEAN.dir);
+    const prox = THREE.MathUtils.smoothstep(sd,
+      Math.cos(THREE.MathUtils.degToRad(54)), Math.cos(THREE.MathUtils.degToRad(33)));
+    waveGain.gain.setTargetAtTime(prox*.12, AC.currentTime, .4);
+  }
+  if(crackGain && campfirePos){
+    const d = player.position.distanceTo(campfirePos);
+    crackGain.gain.setTargetAtTime(Math.max(0, 1 - d/13)*.3, AC.currentTime, .3);
+  }
 }
 
 /* ---------- multiplayer (PeerJS / WebRTC, host acts as relay) ---------- */
 const NAMES = ['fern','mochi','pebble','juniper','tofu','clover','biscuit','maple','sprout','waffle','plum','acorn','nori','poppy'];
 let playerOutfit = null;
 const NET = {peer:null, hostConn:null, conns:new Map(), role:'solo', code:'',
-  name:NAMES[(Math.random()*NAMES.length)|0], sendT:0};
+  name:NAMES[(Math.random()*NAMES.length)|0], sendT:0,
+  peers:[],            // every live Peer (the host keeps one per broker)
+  owner:new Map(),     // remote id -> the Peer its connection arrived on
+  lastSeen:new Map(),  // host: remote id -> when we last heard anything from them
+  lastHeard:0,         // guest: when the host last said anything
+  hbT:0, sess:0};      // heartbeat timer + session counter (stale-callback guard)
 const remotes = new Map(); // id -> {g, tp, tq, walk, name}
 const MAX_PLAYERS = 10;    // same cap as the original — calm over crowds
 
 const mpStatus = m => { const el = document.getElementById('mpStatus'); if(el) el.textContent = m; };
-/* Extra STUN/TURN routes so far-apart friends can still find a path.
-   PeerJS's own TURN + the Open Relay community TURN (port 443/tcp variants
-   punch through strict NATs & firewalls; dead entries are simply ignored). */
-const PEER_OPTS = {
-  config: { iceServers: [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
-      username: 'peerjs', credential: 'peerjsp' },
-    { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443',
-             'turn:openrelay.metered.ca:443?transport=tcp'],
-      username: 'openrelayproject', credential: 'openrelayproject' },
-  ], sdpSemantics: 'unified-plan' },
-};
+/* ---- connection plumbing: every free route we can get ----
+   Far-apart friends usually need a TURN relay. Free relays come and go, so we
+   ship a static list (TLS-on-443 variants punch through strict firewalls),
+   opportunistically fetch fresh credentials at load, and let the browser
+   ignore any dead entries. */
+const DBG = /[?&]debug/.test(location.search);
+const ICE_BASE = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
+    username: 'peerjs', credential: 'peerjsp' },
+  { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443',
+           'turn:openrelay.metered.ca:443?transport=tcp',
+           'turns:openrelay.metered.ca:443?transport=tcp'],
+    username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: ['turn:staticauth.openrelay.metered.ca:80',
+           'turns:staticauth.openrelay.metered.ca:443?transport=tcp'],
+    username: 'openrelayproject', credential: 'openrelayproject' },
+];
+let EXTRA_ICE = [];
+(async ()=>{ // fresh Open Relay credentials if their API still answers; ignored otherwise
+  try{
+    const ctl = new AbortController(); setTimeout(()=>ctl.abort(), 4000);
+    const r = await fetch('https://openrelay.metered.ca/api/v1/turn/credentials?apiKey=openrelayproject',
+      {signal: ctl.signal});
+    if(r.ok){ const j = await r.json(); if(Array.isArray(j) && j.length) EXTRA_ICE = j; }
+  }catch(e){}
+})();
+/* Signaling brokers. The free PeerJS cloud goes down / overloads often enough
+   that it was the #1 "can't join my friend" cause — so the host now registers
+   the room id on EVERY broker it can reach, joiners race all of them in
+   parallel, and the first data connection that opens wins. The two sides only
+   need one broker in common. */
+const BROKERS = [
+  {opts:{}},                                                       // official PeerJS cloud (0.peerjs.com)
+  {opts:{host:'peerjs.92k.de', port:443, path:'/', secure:true}},  // long-running community server
+];
+const peerOpts = br=>({
+  debug: DBG ? 2 : 0,
+  ...((br && br.opts) || {}),
+  config: { iceServers: [...EXTRA_ICE, ...ICE_BASE],
+    sdpSemantics: 'unified-plan', iceCandidatePoolSize: 1 },
+});
+const NET_VER = 4;
+function versionCheck(v){
+  if((v||0) !== NET_VER)
+    toast('You two run different game versions — BOTH of you hard-refresh the page!');
+}
+/* connection doctor: on failure, figure out which leg is broken */
+function probeIce(servers, policy, want){
+  return new Promise(res=>{
+    let pc, done = false;
+    const finish = ok=>{ if(done) return; done = true; try{ pc && pc.close(); }catch(e){} res(ok); };
+    try{ pc = new RTCPeerConnection({iceServers: servers, iceTransportPolicy: policy}); }
+    catch(e){ return res(false); }
+    pc.onicecandidate = ev=>{
+      if(ev.candidate && ev.candidate.candidate.indexOf(' typ '+want) !== -1) finish(true);
+    };
+    try{ pc.createDataChannel('probe'); }catch(e){}
+    pc.createOffer().then(o=>pc.setLocalDescription(o)).catch(()=>finish(false));
+    setTimeout(()=>finish(false), 7000);
+  });
+}
+let doctorBusy = false;
+async function diagnoseNet(){
+  if(doctorBusy) return; doctorBusy = true;
+  mpStatus('Running a connection checkup (~10s)…');
+  const all = [...EXTRA_ICE, ...ICE_BASE];
+  const stunOnly = all.filter(s=>String(s.urls).includes('stun:'));
+  const turnOnly = all.filter(s=>/turns?:/.test(String(s.urls)));
+  const [srflx, relay] = await Promise.all([
+    probeIce(stunOnly, 'all', 'srflx'),
+    probeIce(turnOnly, 'relay', 'relay'),
+  ]);
+  doctorBusy = false;
+  if(!srflx && !relay)
+    mpStatus('Checkup: this network blocks WebRTC entirely (school/office Wi-Fi often does). Switch networks or use a phone hotspot.');
+  else if(!relay)
+    mpStatus('Checkup: no relay server reachable from here — far-apart friends usually need one. Easiest fix: ONE of you plays on a phone hotspot.');
+  else
+    mpStatus('Checkup: your side is fine (public address ✓ relay ✓). The block is likely on your friend\'s side — have them run this too, try hosting instead, or hotspot.');
+}
 function randCode(){
   const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s='';
   for(let i=0;i<4;i++) s += A[(Math.random()*A.length)|0];
@@ -1989,10 +2225,13 @@ function removeRemote(id){
   toast(`${r.name} drifted off`);
 }
 function clearNet(msg){
+  NET.sess++; // invalidates every pending timeout/callback of the old session
   for(const id of [...remotes.keys()]) { scene.remove(remotes.get(id).g); dropVoice(id); remotes.delete(id); }
   voice.called.clear();
+  for(const p of NET.peers){ try{ p.destroy(); }catch(e){} }
   try{ NET.peer && NET.peer.destroy(); }catch(e){}
-  NET.peer = null; NET.hostConn = null; NET.conns.clear();
+  NET.peer = null; NET.hostConn = null; NET.peers = [];
+  NET.conns.clear(); NET.owner.clear(); NET.lastSeen.clear(); NET.lastHeard = 0;
   NET.role = 'solo'; NET.code = '';
   refreshPlayersChip();
   if(msg){ mpStatus(msg); toast(msg); }
@@ -2000,23 +2239,28 @@ function clearNet(msg){
 function hostBroadcast(msg, exceptId){
   for(const [id, c] of NET.conns) if(id !== exceptId && c.open) c.send(msg);
 }
-function snapshotFor(){
+function snapshotFor(exceptId){
+  // never include the joiner in their own snapshot — they'd spawn a ghost twin
   const players = [{id:'HOST', name:NET.name, outfit:playerOutfit,
     p:player.position.toArray(), q:player.quaternion.toArray()}];
-  for(const [id, r] of remotes) players.push({id, name:r.name, outfit:r.outfit,
+  for(const [id, r] of remotes) if(id !== exceptId) players.push({id, name:r.name, outfit:r.outfit,
     p:r.g.position.toArray(), q:r.g.quaternion.toArray()});
-  return {t:'world', players};
+  return {t:'world', v:NET_VER, players};
 }
 function hostOnData(conn, d){
   const id = conn.peer;
+  NET.lastSeen.set(id, performance.now());
   if(d.t === 'hi'){
     if(playerCount() >= MAX_PLAYERS){ try{conn.send({t:'full'}); conn.close();}catch(e){} return; }
     NET.conns.set(id, conn);
     const r = ensureRemote(id, d.name, d.outfit);
     r.outfit = d.outfit;
-    conn.send(snapshotFor());
+    conn.send(snapshotFor(id));
     hostBroadcast({t:'join', id, name:d.name, outfit:d.outfit}, id);
     toast(`${d.name} landed ✦`);
+    versionCheck(d.v);
+  } else if(d.t === 'ping'){
+    try{ conn.send({t:'pong'}); }catch(e){}
   } else if(d.t === 'pos'){
     const r = remotes.get(id); if(!r) return;
     r.tp.fromArray(d.p); r.tq.fromArray(d.q); r.walk = d.w;
@@ -2033,7 +2277,12 @@ function hostOnData(conn, d){
   }
 }
 function guestOnData(d){
-  if(d.t === 'world'){ for(const p of d.players){ const r = ensureRemote(p.id, p.name, p.outfit, p.p, p.q); if(r) r.outfit = p.outfit; } }
+  NET.lastHeard = performance.now();
+  if(d.t === 'pong'){} // heartbeat reply — the timestamp above is the point
+  else if(d.t === 'world'){ versionCheck(d.v);
+    const me = NET.peer && NET.peer.id;
+    for(const p of d.players){ if(p.id === me) continue;
+      const r = ensureRemote(p.id, p.name, p.outfit, p.p, p.q); if(r) r.outfit = p.outfit; } }
   else if(d.t === 'join'){ const r = ensureRemote(d.id, d.name, d.outfit); if(r) r.outfit = d.outfit; toast(`${d.name} landed ✦`); }
   else if(d.t === 'pos'){ const r = remotes.get(d.id); if(!r) return; r.tp.fromArray(d.p); r.tq.fromArray(d.q); r.walk = d.w; }
   else if(d.t === 'emo'){ const r = remotes.get(d.id); if(r) spawnEmoji(r.g, d.e); }
@@ -2057,92 +2306,164 @@ function refitRemote(id, outfit){
 function startHost(){
   if(typeof Peer === 'undefined'){ mpStatus('Multiplayer library blocked here — download the file and open it directly.'); return; }
   clearNet();
+  const sess = NET.sess;
   const code = randCode();
   mpStatus('Opening your planet…');
-  const peer = new Peer('postling-'+code, PEER_OPTS);
-  NET.peer = peer;
-  hookIncomingCalls(peer);
-  const bootT = setTimeout(()=>{ // broker never answered — some networks block it silently
-    if(NET.peer === peer && NET.role !== 'host')
-      clearNet("Can't reach the matchmaking server — your network may block it. Try mobile data or another Wi-Fi.");
-  }, 10000);
-  peer.on('open', ()=>{
-    clearTimeout(bootT);
-    NET.role = 'host'; NET.code = code;
-    mpStatus(`Hosting planet ${code} — share the code! Keep this tab open; the code lives and dies with it.`);
-    refreshPlayersChip();
-  });
-  peer.on('connection', conn=>{
-    conn.on('data', d=>hostOnData(conn, d));
-    conn.on('close', ()=>{
-      if(NET.conns.has(conn.peer)){
-        NET.conns.delete(conn.peer);
-        hostBroadcast({t:'leave', id:conn.peer});
-        removeRemote(conn.peer);
+  let rerolled = false;
+  for(const br of BROKERS){
+    let peer;
+    try{ peer = new Peer('postling-'+code, peerOpts(br)); }catch(e){ continue; }
+    NET.peers.push(peer);
+    hookIncomingCalls(peer);
+    peer.on('open', ()=>{
+      if(NET.sess !== sess) return;
+      if(NET.role !== 'host'){ // first broker to answer makes us live
+        NET.role = 'host'; NET.code = code; NET.peer = peer;
+        mpStatus(`Hosting planet ${code} — share the code! Keep this tab open; the code lives and dies with it.`);
+        refreshPlayersChip();
       }
     });
-  });
-  peer.on('disconnected', ()=>{ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } });
-  peer.on('error', err=>{
-    const t = err && err.type;
-    if(t === 'unavailable-id'){ startHost(); return; } // code collision — reroll
-    // per-link hiccups (voice-call negotiation, a guest that already left):
-    // never tear the whole session down for these
-    if(t === 'webrtc' || t === 'peer-unavailable') return;
-    // signaling socket lost — live P2P connections survive, just get the socket back
-    if(t === 'network'){ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } return; }
-    clearNet('Network unavailable — playing solo.');
-  });
+    peer.on('connection', conn=>{
+      if(NET.sess !== sess) return;
+      NET.owner.set(conn.peer, peer); // remember the broker, for routing voice calls
+      toast('✉ A courier is approaching…');
+      const openT = setTimeout(()=>{ // signaling reached us but the link never opened → their/our firewall
+        toast("A courier couldn't land — the link died mid-flight. Ask them to retry; a phone hotspot usually fixes it.");
+      }, 25000);
+      conn.on('open', ()=>clearTimeout(openT));
+      conn.on('data', d=>hostOnData(conn, d));
+      conn.on('close', ()=>{
+        clearTimeout(openT);
+        if(NET.conns.has(conn.peer)){
+          NET.conns.delete(conn.peer); NET.owner.delete(conn.peer); NET.lastSeen.delete(conn.peer);
+          hostBroadcast({t:'leave', id:conn.peer});
+          removeRemote(conn.peer);
+        }
+      });
+    });
+    peer.on('disconnected', ()=>{ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } });
+    peer.on('error', err=>{
+      if(NET.sess !== sess) return;
+      const t = err && err.type;
+      if(t === 'unavailable-id'){
+        // code collision on this broker: reroll everything if the code hasn't
+        // been shared yet, otherwise just give up on this one broker
+        if(NET.role !== 'host' && !rerolled && !NET.conns.size){ rerolled = true; startHost(); }
+        else { NET.peers = NET.peers.filter(p=>p !== peer); try{ peer.destroy(); }catch(e){} }
+        return;
+      }
+      // per-link hiccups (voice-call negotiation, a guest that already left):
+      // never tear the whole session down for these
+      if(t === 'webrtc' || t === 'peer-unavailable') return;
+      // signaling socket lost — live P2P connections survive, just get the socket back
+      if(t === 'network'){ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } return; }
+      // this broker is broken — drop it, keep hosting on the others
+      NET.peers = NET.peers.filter(p=>p !== peer);
+      try{ peer.destroy(); }catch(e){}
+      if(NET.peer === peer) NET.peer = NET.peers[0] || null;
+      if(!NET.peers.length) clearNet('Network unavailable — playing solo.');
+    });
+  }
+  if(!NET.peers.length){ mpStatus('Could not start multiplayer here.'); return; }
+  setTimeout(()=>{ // no broker ever answered — some networks block them silently
+    if(NET.sess === sess && NET.role !== 'host'){
+      clearNet("Can't reach the matchmaking servers — your network may block them. Try mobile data or another Wi-Fi.");
+      diagnoseNet();
+    }
+  }, 12000);
 }
-function joinRoom(codeRaw){
+/* guests auto-rejoin the same code when the link drops or goes silent —
+   a host refresh or a flaky network no longer strands everyone in solo */
+const rejoin = {tries:0};
+function attemptRejoin(){
+  const code = NET.code;
+  if(!code || rejoin.tries >= 2){ clearNet('Lost the planet — back to solo.'); return; }
+  rejoin.tries++;
+  toast('Connection wobbled — reconnecting…');
+  joinRoom(code);
+}
+function joinRoom(codeRaw, attempt = 1){
   if(typeof Peer === 'undefined'){ mpStatus('Multiplayer library blocked here — download the file and open it directly.'); return; }
   const code = (codeRaw||'').trim().toUpperCase();
   if(code.length !== 4){ mpStatus('Enter the 4-letter code from your friend.'); return; }
   clearNet();
-  mpStatus('Contacting the post office…');
-  const peer = new Peer(PEER_OPTS);
-  NET.peer = peer;
-  hookIncomingCalls(peer);
-  const bootT = setTimeout(()=>{ // broker never answered — some networks block it silently
-    if(NET.peer === peer && NET.role !== 'guest')
-      clearNet("Can't reach the matchmaking server — your network may block it. Try mobile data or another Wi-Fi.");
-  }, 10000);
-  peer.on('open', ()=>{
-    clearTimeout(bootT);
-    mpStatus(`Looking for planet ${code}…`);
-    const conn = peer.connect('postling-'+code, {reliable:true});
-    NET.hostConn = conn;
-    // long-distance links (relayed through TURN) can genuinely take 15-25s to open
-    const slowT = setTimeout(()=>{
-      if(NET.role !== 'guest' && NET.peer === peer)
-        mpStatus(`Found the route to ${code} — connecting… far-apart planets can take ~20s.`);
-    }, 6000);
-    const failT = setTimeout(()=>{
-      if(NET.role !== 'guest' && NET.peer === peer)
-        clearNet("Couldn't connect — a firewall is blocking the player-to-player link. Try again, or switch one of you to mobile-data hotspot.");
-    }, 30000);
-    conn.on('open', ()=>{
-      clearTimeout(failT); clearTimeout(slowT);
-      NET.role = 'guest'; NET.code = code;
-      conn.send({t:'hi', name:NET.name, outfit:playerOutfit});
-      mpStatus(`Joined planet ${code}! You are “${NET.name}”.`);
-      refreshPlayersChip();
+  const sess = NET.sess;
+  mpStatus(attempt > 1 ? `Retrying (attempt ${attempt} of 2)…` : 'Contacting the post office…');
+  // race every broker; the first data connection that opens wins
+  let won = false, launched = 0, down = 0, unregistered = 0;
+  const settle = ()=>{ // all broker attempts have died — decide what to tell the player
+    if(won || NET.sess !== sess || down + unregistered < launched) return;
+    if(unregistered === launched)
+      clearNet("That planet isn't hosting right now — codes die when the host closes their tab. Check the 4 letters and ask them to re-host.");
+    else if(attempt < 2) joinRoom(code, attempt + 1); // fresh peers + fresh routes; second tries often land
+    else { clearNet("Couldn't connect after two full tries."); diagnoseNet(); }
+  };
+  for(const br of BROKERS){
+    let peer;
+    try{ peer = new Peer(peerOpts(br)); }catch(e){ continue; }
+    launched++;
+    NET.peers.push(peer);
+    hookIncomingCalls(peer);
+    let settled = false;
+    const fail = kind=>{ if(settled) return; settled = true;
+      kind === 'u' ? unregistered++ : down++; settle(); };
+    peer.on('open', ()=>{
+      if(won || NET.sess !== sess){ try{ peer.destroy(); }catch(e){} return; }
+      mpStatus(`Looking for planet ${code}…`);
+      const conn = peer.connect('postling-'+code, {reliable:true});
+      // live negotiation status — long-distance relayed links can take 15-25s
+      (function watchIce(){
+        if(won || NET.sess !== sess) return;
+        const pc = conn.peerConnection;
+        if(!pc){ setTimeout(watchIce, 400); return; }
+        pc.addEventListener('iceconnectionstatechange', ()=>{
+          if(won || NET.sess !== sess) return;
+          const s = pc.iceConnectionState;
+          if(s === 'checking') mpStatus(`Found ${code} — testing routes (direct first, then relay)… up to ~30s.`);
+          else if(s === 'failed') mpStatus('No direct route — trying relays…');
+        });
+      })();
+      conn.on('open', ()=>{
+        if(NET.sess !== sess || won){ try{ conn.close(); }catch(e){} return; }
+        won = true;
+        for(const p of NET.peers) if(p !== peer){ try{ p.destroy(); }catch(e){} } // drop the losing racers
+        NET.peers = [peer];
+        NET.peer = peer; NET.hostConn = conn;
+        NET.role = 'guest'; NET.code = code;
+        NET.lastHeard = performance.now(); NET.hbT = 0;
+        rejoin.tries = 0;
+        conn.send({t:'hi', name:NET.name, outfit:playerOutfit, v:NET_VER});
+        mpStatus(`Joined planet ${code}! You are “${NET.name}”.`);
+        refreshPlayersChip();
+      });
+      conn.on('data', d=>{ if(NET.hostConn === conn) guestOnData(d); });
+      conn.on('close', ()=>{
+        if(NET.sess !== sess) return;
+        if(NET.hostConn === conn && NET.role === 'guest') attemptRejoin();
+        else if(!won) fail('d');
+      });
     });
-    conn.on('data', guestOnData);
-    conn.on('close', ()=>{ if(NET.role==='guest') clearNet('Host left — back to solo.'); });
-  });
-  peer.on('disconnected', ()=>{ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } });
-  peer.on('error', err=>{
-    const t = err && err.type;
-    if(t === 'peer-unavailable'){ // that code isn't registered — only fatal while still joining
-      if(NET.role !== 'guest')
-        clearNet("That planet isn't hosting right now — codes die when the host closes their tab. Check the 4 letters and ask them to re-host.");
-      return;
-    }
-    if(t === 'webrtc') return; // per-link negotiation hiccup (voice call etc.) — keep playing
-    if(t === 'network'){ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } return; }
-    clearNet(NET.role === 'guest' ? 'Connection lost — back to solo.' : 'Could not find that planet.');
-  });
+    peer.on('disconnected', ()=>{ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } });
+    peer.on('error', err=>{
+      if(NET.sess !== sess) return;
+      const t = err && err.type;
+      if(!won){
+        if(t === 'peer-unavailable'){ fail('u'); return; } // code not registered on this broker
+        if(t === 'webrtc') return;
+        fail('d');
+        return;
+      }
+      if(t === 'webrtc' || t === 'peer-unavailable') return; // per-link hiccup (voice call etc.) — keep playing
+      if(t === 'network'){ if(!peer.destroyed){ try{ peer.reconnect(); }catch(e){} } return; }
+      clearNet('Connection lost — back to solo.');
+    });
+  }
+  if(!launched){ mpStatus('Could not start multiplayer here.'); return; }
+  setTimeout(()=>{ // hard deadline for this pass — negotiation can hang silently
+    if(won || NET.sess !== sess) return;
+    if(attempt < 2) joinRoom(code, attempt + 1);
+    else { clearNet("Couldn't connect after two full tries."); diagnoseNet(); }
+  }, 30000);
 }
 function netSendPos(){
   if(!netActive() || !player) return;
@@ -2162,6 +2483,36 @@ function netRefit(){
   if(!netActive()) return;
   if(NET.role === 'host') hostBroadcast({t:'fit', id:'HOST', outfit:playerOutfit});
   else if(NET.hostConn && NET.hostConn.open) NET.hostConn.send({t:'fit', outfit:playerOutfit});
+}
+/* heartbeat: guests ping, the host pongs, and both prune links that go
+   silent. PeerJS data channels can zombie without ever firing 'close'
+   (especially relayed ones) — this detects it, then guests auto-rejoin. */
+function netHeartbeat(dt){
+  if(NET.role === 'guest'){
+    NET.hbT -= dt;
+    if(NET.hbT <= 0 && NET.hostConn && NET.hostConn.open){
+      NET.hbT = 2.5;
+      try{ NET.hostConn.send({t:'ping'}); }catch(e){}
+    }
+    if(NET.lastHeard && performance.now() - NET.lastHeard > 12000){
+      NET.lastHeard = 0;
+      attemptRejoin();
+    }
+  } else if(NET.role === 'host'){
+    NET.hbT -= dt;
+    if(NET.hbT <= 0){
+      NET.hbT = 3;
+      const now = performance.now();
+      for(const [id, c] of [...NET.conns]){
+        if(now - (NET.lastSeen.get(id) || now) > 12000){
+          try{ c.close(); }catch(e){}
+          NET.conns.delete(id); NET.owner.delete(id); NET.lastSeen.delete(id);
+          hostBroadcast({t:'leave', id});
+          removeRemote(id);
+        }
+      }
+    }
+  }
 }
 function updateRemotes(dt, t){
   for(const r of remotes.values()){
@@ -2184,6 +2535,18 @@ function updateRemotes(dt, t){
   }
   if(player) updateVoiceVolumes();
 }
+document.getElementById('playersChip').addEventListener('click', ()=>{
+  if(!remotes.size){ toast('No other couriers here yet — share your code!'); return; }
+  const parts = [];
+  for(const r of remotes.values()){
+    const pd = r.g.position.clone().normalize();
+    let zn = 'wandering', best = -2;
+    for(const z of ZONES){ const d0 = pd.dot(z.dir); if(d0 > z.cosR && d0 > best){ best = d0; zn = z.name; } }
+    parts.push(`${r.name} → ${zn}`);
+    if(parts.length >= 3) break;
+  }
+  toast(parts.join(' · '));
+});
 document.getElementById('hostBtn').addEventListener('click', e=>{ e.currentTarget.blur(); startHost(); });
 document.getElementById('joinBtn').addEventListener('click', e=>{ e.currentTarget.blur();
   joinRoom(document.getElementById('roomInput').value); });
@@ -2363,9 +2726,11 @@ addEventListener('pointerdown', ()=>{
   while(voice.pending.length){ const el = voice.pending.pop(); el.play().catch(()=>{}); }
 }, {capture:true});
 function callPeerVoice(key, attempt = 0){
-  if(!voice.stream || !NET.peer || voice.called.has(key)) return;
+  // the host must dial each guest on the broker that guest actually joined via
+  const via = (NET.role === 'host' && NET.owner.get(key)) || NET.peer;
+  if(!voice.stream || !via || voice.called.has(key)) return;
   try{
-    const call = NET.peer.call(peerIdOf(key), voice.stream);
+    const call = via.call(peerIdOf(key), voice.stream);
     if(!call) return;
     voice.called.add(key);
     call.on('stream', s=>attachVoice(key, s));
@@ -2431,7 +2796,7 @@ function applyBall(d){
 
 /* ---------- movement / camera update ---------- */
 const tmpQ = new THREE.Quaternion(), tmpM = new THREE.Matrix4();
-let walkPhase = 0, playerWet = 0, curZone = null, stepT = 0;
+let walkPhase = 0, playerWet = 0, curZone = null, stepT = 0, moveSpd = 0;
 function updatePlayer(dt){
   const pos = player.position;
   const up = pos.clone().normalize();
@@ -2445,7 +2810,7 @@ function updatePlayer(dt){
     else if(mode === 'fish') stopFishing('Reeled in.');
   }
   if(mode !== 'walk'){ ix = iy = 0; }
-  let mag = Math.min(1, Math.hypot(ix, iy));
+  const inputMag = Math.min(1, Math.hypot(ix, iy));
 
   const camF = pos.clone().sub(camera.position);
   camF.addScaledVector(up, -camF.dot(up)).normalize();
@@ -2453,12 +2818,18 @@ function updatePlayer(dt){
   const moveDir = V().addScaledVector(camR, ix).addScaledVector(camF, iy);
   if(moveDir.lengthSq() > 1e-6) moveDir.normalize();
 
+  // a little inertia: quick to get going, a short glide to stop
+  moveSpd += (inputMag - moveSpd) * Math.min(1, dt*(inputMag > moveSpd ? 11 : 6.5));
+  if(moveSpd < .01 && inputMag === 0) moveSpd = 0;
+  const mag = moveSpd;
+
   const SPEED = 8.2;
+  if(inputMag > 0.01) lastMoveDir.copy(moveDir);
   if(mag > 0.01){
-    lastMoveDir.copy(moveDir);
+    const dir = inputMag > 0.01 ? moveDir : lastMoveDir;
     const prev = pos.clone();
     const inWater = pos.clone().normalize().dot(OCEAN.dir) > OCEAN.cosWater;
-    pos.addScaledVector(moveDir, SPEED*(inWater? .55 : 1)*mag*dt);
+    pos.addScaledVector(dir, SPEED*(inWater? .55 : 1)*mag*dt);
     pos.setLength(R);
     if(pos.clone().normalize().dot(OCEAN.dir) > OCEAN.cosDeep){
       pos.copy(prev); // too deep — the mail must stay dry
@@ -2485,7 +2856,7 @@ function updatePlayer(dt){
   // orient: local +Z faces travel direction, local Y = up
   const newUp = pos.clone().normalize();
   let face;
-  if(mag > 0.01) face = moveDir;
+  if(inputMag > 0.01) face = moveDir;
   else {
     face = V(0,0,1).applyQuaternion(player.quaternion);
     face.addScaledVector(newUp, -face.dot(newUp)).normalize();
@@ -2515,7 +2886,7 @@ function updatePlayer(dt){
     camYawVel *= Math.pow(.0001, dt);
   }
   // drift behind when moving
-  if(mag > 0.01){
+  if(inputMag > 0.01){
     const behind = moveDir.clone().multiplyScalar(-1);
     const td = tang.clone().normalize().lerp(behind, 1-Math.pow(.55, dt)).normalize();
     tang.copy(td).multiplyScalar(tang.length());
@@ -2665,6 +3036,7 @@ function loop(){
     if(NET.sendT <= 0){ netSendPos(); NET.sendT = .1; }
   }
   updateRemotes(dt, t);
+  netHeartbeat(dt);
   for(const b of birds){
     b.rotation.y += b.userData.spd*dt;
     const f = Math.sin(t*13 + b.userData.ph)*.65;
@@ -2674,6 +3046,46 @@ function loop(){
   moon.position.set(Math.cos(t*.05)*90, 40+Math.sin(t*.03)*10, Math.sin(t*.05)*90);
   moon.rotation.y = t*.2;
   if(oceanMat) oceanMat.uniforms.time.value = t;
+  // day / night: slow cosine between noon (1) and midnight (0)
+  const dph = ((t/DAY_LEN) + .06) % 1;
+  dayB = .5 + .5*Math.cos(dph*Math.PI*2);
+  // dusk/dawn factor — a bell that peaks while the sun crosses the horizon
+  const dusk = Math.max(0, 1 - Math.abs(dayB - .3)/.3);
+  // the sun really travels: noon overhead → dusk at the horizon → gone at night
+  const sa = dph*Math.PI*2;
+  const sunDir = V(Math.sin(sa)*.85, Math.cos(sa), .4).normalize();
+  const sunUp = sunDir.y;                       // above/below the world horizon
+  sunDisc.position.copy(sunDir).multiplyScalar(430);
+  sunDisc.visible = sunUp > -.06;
+  sunDisc.material.color.copy(SUN_DAY).lerp(SUN_DUSK, dusk*.9);
+  // shadow light: keep it just above the horizon so low sun = long dusk shadows,
+  // and fade it out at night instead of ever lighting from below
+  const litDir = sunDir.clone(); litDir.y = Math.max(litDir.y, .09); litDir.normalize();
+  const anchor = player ? player.position : V(0, R, 0);
+  sun.position.copy(anchor).addScaledVector(litDir, 70);
+  sun.target.position.copy(anchor);
+  sun.intensity = .06 + .95*Math.pow(dayB, 1.15);
+  sun.color.copy(SUN_DAY).lerp(SUN_DUSK, dusk*.85);
+  moonLight.position.copy(anchor).addScaledVector(litDir.clone().multiplyScalar(-1).setY(.6).normalize(), 70);
+  moonLight.intensity = .22*(1-dayB);
+  hemi.intensity = .32 + .55*dayB;
+  skyMat.uniforms.top.value.copy(SKY_NIGHT_TOP).lerp(SKY_DAY_TOP, dayB).lerp(SKY_DUSK_TOP, dusk*.65);
+  skyMat.uniforms.bottom.value.copy(SKY_NIGHT_BOT).lerp(SKY_DAY_BOT, dayB).lerp(SKY_DUSK_BOT, dusk*.8);
+  scene.fog.color.copy(FOG_NIGHT).lerp(FOG_DAY, dayB).lerp(FOG_DUSK, dusk*.6);
+  if(starMat) starMat.opacity = (1-dayB)*(1-dayB)*.9;
+  if(oceanMat){
+    const k = .35 + .65*dayB;
+    oceanMat.uniforms.deep.value.copy(C_DEEP).multiplyScalar(k);
+    oceanMat.uniforms.shallow.value.copy(C_SHALLOW).multiplyScalar(k);
+    oceanMat.uniforms.foamC.value.copy(C_FOAM).multiplyScalar(.55 + .45*dayB);
+    oceanMat.uniforms.fogC.value.copy(scene.fog.color);
+    oceanMat.uniforms.fogD.value = scene.fog.density;
+  }
+  if(sandMat){
+    sandMat.uniforms.sandC.value.copy(C_SAND).multiplyScalar(.45 + .55*dayB);
+    sandMat.uniforms.fogC.value.copy(scene.fog.color);
+    sandMat.uniforms.fogD.value = scene.fog.density;
+  }
   updateDetails(dt, t);
   if(fountainBits){
     fountainBits.blob.position.y = 1.55 + Math.sin(t*3.2)*.14;
@@ -2695,8 +3107,19 @@ function loop(){
     b.material.opacity = Math.max(0, 1 - b.userData.t/1.8);
     if(b.userData.t > 1.8){ scene.remove(b); bubbles.splice(i,1); }
   }
+  // quality governor: if a weak phone can't hold ~34fps, drop to 1x pixel
+  // ratio and shut off the sun's shadow map once
+  fpsAcc += dt; fpsN++;
+  if(fpsAcc >= 1){
+    const fps = fpsN/fpsAcc; fpsAcc = 0; fpsN = 0;
+    if(!lowRes && fps < 34){ if(++lowStreak >= 4){
+      lowRes = true; renderer.setPixelRatio(1); sun.castShadow = false;
+    } }
+    else lowStreak = 0;
+  }
   renderer.render(scene, camera);
 }
+let fpsAcc = 0, fpsN = 0, lowStreak = 0, lowRes = false;
 
 /* ---------- staged loading with real work per step ---------- */
 const STEPS = [
@@ -2705,8 +3128,8 @@ const STEPS = [
   ['Filling the ocean…', buildZones],
   ['Hanging the lanterns…', buildDetails],
   ['Waking the neighbors…', buildNPCs],
-  ['Packing the mail bag…', ()=>{ buildPlayer(); buildBots(); }],
-  ['Tuning the radio…', ()=>{}],
+  ['Packing the mail bag…', ()=>{ buildPlayer(); buildBots(); applySave(); }],
+  ['Raising the sun…', ()=>enableShadows(planet)],
 ];
 let stepI = 0;
 function runStep(){
@@ -2724,6 +3147,11 @@ function runStep(){
     renderer.render(scene, camera);
     setTimeout(()=>{
       document.getElementById('loader').classList.add('done');
+      if(stage > 0 || secretsFound > 0){ // returning courier
+        document.getElementById('startBtn').textContent =
+          finished ? 'Keep wandering ✦' : 'Continue the round ✉';
+        document.getElementById('resetBtn').style.display = '';
+      }
       const title = document.getElementById('title');
       title.classList.add('show');
     }, 500);
@@ -2742,9 +3170,14 @@ document.getElementById('startBtn').addEventListener('click', e=>{
   document.getElementById('hud').classList.add('show');
   restJoy();
   running = true;
-  setMusic(true);
-  document.getElementById('objective').textContent = 'Find Pip at the post office.';
-  toast('Follow the ✉ beacon');
+  setMusic(!(SAVED && SAVED.music === false));
+  if(stage === 0)
+    document.getElementById('objective').textContent = 'Find Pip at the post office.';
+  toast(finished ? 'Welcome back, Postling ✦' : stage > 0 ? 'Back on the route ✉' : 'Follow the ✉ beacon');
+});
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
+  location.reload();
 });
 
 loop();
